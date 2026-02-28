@@ -1,0 +1,63 @@
+---
+title: "AudioAnnotation"
+format: html
+editor: source
+---
+
+```{r}
+library(monitoR)
+
+apple = 'C:/Users/lucas/Desktop/Thesis/Code/TrainingData/671658014.180928183606-AW.wav'
+
+viewSpec(apple, frq.lim = c(0, 0.5), page.length = 10, units = 'seconds')
+```
+
+```{r}
+wct1 <- makeCorTemplate(apple, 
+                        name = apple,
+                        t.lim=c(1.32, 4.32),
+                        frq.lim=c(0, 1))
+
+wct1 <- makeCorTemplate(apple, 
+                        name = apple,
+                        t.lim=c(32, 35),
+                        frq.lim=c(0, 1))
+```
+
+## Reading in Wav File and Trimming It
+
+```{r}
+library(tuneR)
+# Read a WAV file
+audio_data <- readWave('C:/Users/lucas/Desktop/Thesis/Code/TrainingData/671658014.180928183606-AW.wav', from = 0, to = 30, units = "minutes")
+
+# Perform operations like trimming, filtering, or combining audio segments
+# For example, trimming the first 5 seconds
+trimmed_audio <- audio_data[1:(audio_data@samp.rate * 5)] 
+```
+
+## Adding Sample Annotations
+
+```{r}
+annotations <- data.frame(
+    start_time = c(1.0, 5.5, 10.2),
+    end_time = c(2.5, 7.0, 12.0),
+    label = c("event_A", "event_B", "event_C")
+    )
+```
+
+## Generating Wav File
+
+```{r}
+writeWave(trimmed_audio, "output_processed.wav")
+```
+
+## Generating Annotation File
+
+```{r}
+# Example for saving as CSV
+write.csv(annotations, "output_annotations.csv", row.names = FALSE)
+
+# For more complex annotations, consider JSON or Praat TextGrid formats
+# You might need to use other packages or write custom functions for these.
+```
