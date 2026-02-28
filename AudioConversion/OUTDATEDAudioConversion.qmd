@@ -1,0 +1,136 @@
+---
+title: "AudioConversion"
+format: html
+editor: source
+---
+
+## Use 'AudioConversionMEL' instead.
+
+```{r}
+library(tuneR)
+library(seewave)
+```
+
+Reading in file
+
+```{r}
+audio_data <- readWave("671658014.180928183606-AW.wav", from = 0, to = .1, units = "hours")
+
+```
+
+Extracting Raw Audio Samples
+
+```{r}
+raw_samples <- audio_data@left
+```
+
+Creating a Time-Domain Tabular Dataset
+
+```{r}
+sampling_rate <- audio_data@samp.rate
+#16 bit
+
+#length(sampling_rate)
+
+time_points <- seq(from = 0, by = 1/sampling_rate, length.out = length(raw_samples))
+time_domain_df <- data.frame(Time = time_points, Amplitude = raw_samples)
+```
+
+Creating a Frequency-Domain Tabular Dataset (e.g., using Spectrogram)
+
+```{r}
+spectrogram_data <- spectro(audio_data@left, 
+                            f = sampling_rate,
+                            wn = "hanning",
+                            collevels = seq(-80, 0 ,1),
+                            plot = TRUE)
+#represents the actual pressure oscillations of a sound wave, not its amplitude
+
+```
+
+The spectrogram_data object contains time, frequency, and amplitude information, which can then be restructured into a data frame.
+
+```{r}
+library(reshape2)
+library(dplyr)
+```
+
+```{r}
+#AI Generated
+#Error in code
+
+
+# Extract and melt time and frequency data
+time_melted <- melt(spectrogram_data$time, value.name = "Time") %>%
+  mutate(TimeIndex = row_number())
+frequency_melted <- melt(spectrogram_data$freq, value.name = "Frequency") %>%
+  mutate(FrequencyIndex = row_number())
+
+# Combine amplitude data with time and frequency
+amplitude_df <- as.data.frame(spectrogram_data$amp)
+colnames(amplitude_df) <- paste0("Freq_", 1:ncol(amplitude_df)) # Rename columns if needed
+
+amplitude_df$TimeIndex <- row_number()
+
+# Join to create the final frequency-domain data frame
+frequency_domain_df <- amplitude_df %>%
+  left_join(time_melted, by = "TimeIndex") %>%
+  left_join(frequency_melted, by = "FrequencyIndex") %>%
+  select(Time, Frequency, Amplitude = Freq_1) # Adjust 'Freq_1' based on your spectrogram output
+```
+
+```{r}
+
+# Load a .wav file.
+# If you don't have one, you can create a test sound.
+
+#normalize function centers and rescales waveform
+#sine function creates waveform object
+
+#AI code
+#testsine <- normalize(sine(400) + sine(1000), unit = "16")
+#writeWave(testsine, file.path(tempdir(), "testsine.wav"))
+#audio_wave <- readWave(file.path(tempdir(), "testsine.wav"))
+#class(testsine)
+
+```
+
+```{r}
+# Compute MFCCs with default settings
+mfcc_coeffs <- melfcc(audio_wave)
+
+
+mfcc_coeffs2 <- melfcc(audio_wave, wintime = 0.1, hoptime = .1, numcep = 13, bwidth = 20)
+
+
+# The result is a matrix where each row is a time frame and each column is a coefficient.
+# View the dimensions of the resulting matrix
+dim(mfcc_coeffs)
+
+dim(mfcc_coeffs2)
+
+
+# Inspect the first few rows of the MFCC matrix
+head(mfcc_coeffs)
+
+```
+
+```{r}
+audio_data
+
+
+melfcc(audio_data, wintime = .7, hoptime = 0.1, numcep = 20, bwidth = 1)
+```
+
+```{r}
+melfcc(audio_data, wintime = 0.1, hoptime = 0.1, numcep = 20, bwidth = 1)
+
+
+
+dim(melfcc(audio_data, wintime = .1, hoptime = 0.1, numcep = 20, bwidth = 1))
+dim(melfcc(audio_data, wintime = .19999, hoptime = 0.1, numcep = 20, bwidth = 1))
+
+
+
+
+```
