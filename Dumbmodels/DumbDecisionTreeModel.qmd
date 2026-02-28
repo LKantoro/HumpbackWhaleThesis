@@ -1,0 +1,132 @@
+---
+title: "DumbDecisionTreeModel"
+format: html
+editor: source
+---
+
+```{r}
+#| label: libraries-r
+
+
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(tidyr)
+library(dplyr)
+library(readxl)
+```
+
+## Loading and Transforming Data
+
+```{r}
+training = read_csv(here::here("annotatedmelAW.csv")) %>% 
+  mutate(Humpback = as.factor(Humpback))
+
+
+testing1 = read_csv(here::here("annotatedmelAS.csv")) %>% 
+  mutate(Humpback = as.factor(Humpback))
+
+
+testing2 = read_csv(here::here("annotatedmelSS.csv")) %>% 
+  mutate(Humpback = as.factor(Humpback))
+
+
+```
+
+## Creating Cross-Validation Folds
+
+```{r}
+set.seed(813)
+training_cvs = vfold_cv(training, v = 10)
+
+```
+
+## Creating Model
+
+```{r}
+#model
+decision_tree_mod1 = decision_tree() %>%
+  set_engine("rpart") %>%
+  set_mode("classification")
+
+#recipe
+treerecipe_1 = recipe(Humpback ~ V1 + V2 + V3 + V4 + V5 + 
+                       V6 + V7 + V8 + V9 + V10, 
+                     data = training) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_factor_predictors())
+
+#workflow
+tree_wflow = workflow() %>%
+  add_model(decision_tree_mod1) %>% 
+  add_recipe(treerecipe_1)
+
+
+#fitting model
+tree_fit_1 = tree_wflow %>% fit(training) 
+
+
+#confusion matrix
+training %>%
+  mutate(
+    treepreds = predict(tree_fit_1, training)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = treepreds)
+```
+
+## Cross-Validating
+
+```{r}
+treefitcv_1 = tree_wflow %>%
+  fit_resamples(training_cvs,
+                metrics = metric_set(accuracy, roc_auc, precision, specificity, recall)
+                )
+treefitcv_1 %>% collect_metrics()
+```
+
+Validating on Other Models
+
+```{r}
+
+#as.data.frame(predict(tree_fit_1, testing1)$.pred_class, testing1$Humpback)
+
+
+testing1 = testing1 %>%
+  mutate(
+    treepreds = predict(tree_fit_1, testing1)$.pred_class
+  )
+
+testing1 %>%
+  conf_mat(truth = Humpback,
+           estimate = treepreds)
+
+recall(testing1, Humpback, treepreds)
+
+#0.633
+
+
+#recall is minimizing false negatives, (FN = predicting no HB when it is a HB)
+
+
+
+
+#as.data.frame(predict(tree_fit_1, testing2)$.pred_class, testing1$Humpback)
+
+
+testing2 = testing2 %>%
+  mutate(
+    treepreds = predict(tree_fit_1, testing2)$.pred_class
+  )
+
+testing2 %>%
+  conf_mat(truth = Humpback,
+           estimate = treepreds)
+
+recall(testing2, Humpback, treepreds)
+
+#0.1889
+
+
+
+```

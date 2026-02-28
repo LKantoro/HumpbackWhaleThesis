@@ -1,0 +1,218 @@
+---
+title: "DumbKNNModel"
+format: html
+editor: source
+---
+
+```{r}
+#| label: libraries-r
+#| warning: false
+
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(tidyr)
+library(dplyr)
+library(readxl)
+```
+
+## Loading and Transforming Data
+
+```{r}
+#| warning: false
+
+
+
+training = read_csv(here::here("annotatedmelAW.csv")) %>% 
+  mutate(Humpback = as.factor(Humpback))
+
+
+#testing1 = read_csv("C:/Users/lucas/Desktop/Thesis/Code/annotatedmelAS.csv")
+
+#testing1 = testing1 %>% mutate(Humpback = as.factor(Humpback))
+
+
+testing2 = read_csv(here::here("annotatedmelSS.csv")) %>% 
+  mutate(Humpback = as.factor(Humpback))
+
+
+```
+
+## Exploratory Data Analysis
+
+```{r}
+table(training$Humpback)
+
+#table(testing1$Humpback)
+
+table(testing2$Humpback)
+
+```
+
+## Creating Cross-Validation Folds
+
+```{r}
+set.seed(883)
+training_cvs = vfold_cv(training, v = 10)
+
+```
+
+## Creating Simple KNN Model
+
+```{r}
+#creating model
+knn_mod1 = nearest_neighbor(neighbors = 775) %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
+
+#creating recipe
+knnrecipe_1 = recipe(Humpback ~ V1 + V2 + V3 + V4 + V5 + 
+                       V6 + V7, 
+                     data = training) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_factor_predictors())
+
+
+#creating workflow
+knnworkflow_1 = workflow() %>% 
+  add_recipe(knnrecipe_1) %>% 
+  add_model(knn_mod1)
+
+#fitting model
+knnfit_1 = knnworkflow_1 %>% fit(training) 
+
+
+#confusion matrix
+training %>%
+  mutate(
+    knnpreds = predict(knnfit_1, training)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = knnpreds)
+
+
+
+
+```
+
+## Fitting on Cross-Validation
+
+```{r}
+
+#fitting CVs
+knnfitcv_1 = knnworkflow_1 %>% fit_resamples(training_cvs,
+                metrics = metric_set(accuracy, roc_auc, precision, specificity, recall)
+                )
+
+#results
+collect_metrics(knnfitcv_1)
+
+
+```
+
+## Fitting on Testing-Sets
+
+```{r}
+
+
+#as.data.frame(predict(knnfit_1, testing1)$.pred_class, testing1$Humpback)
+
+
+testing1 = testing1 %>%
+  mutate(
+    knnpreds = predict(knnfit_1, testing1)$.pred_class
+  )
+
+testing1 %>%
+  conf_mat(truth = Humpback,
+           estimate = knnpreds)
+
+recall(testing1, Humpback, knnpreds)
+#0.829 100 neighbors
+
+#0.879 775 neighbors
+
+
+
+#recall is minimizing false negatives, (FN = predicting no HB when it is a HB)
+#recall and sensitivity are the same
+
+
+
+
+#as.data.frame(predict(knnfit_1, testing2)$.pred_class, testing1$Humpback)
+
+
+testing2 = testing2 %>%
+  mutate(
+    knnpreds = predict(knnfit_1, testing2)$.pred_class
+  )
+
+testing2 %>%
+  conf_mat(truth = Humpback,
+           estimate = knnpreds)
+
+recall(testing2, Humpback, knnpreds)
+#0.372 100 neighbors
+
+#0.309 775 neighbors
+
+
+
+#a lot of false positives
+```
+
+Creating Tuning KNN Model
+
+```{r}
+k_grid <- grid_regular(neighbors(c(100,1000)), 
+                       levels = 5)
+k_grid
+
+#tuning steps
+#100 neighbors was the best from 10-100
+
+
+#maximizing ROC-AUC at around 0.66
+
+knn_mod_tune <- nearest_neighbor(neighbors = tune()) %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
+
+
+#creating recipe
+knnrecipe_tune = recipe(Humpback ~ V1 + V2 + V3 + V4 + V5 + 
+                       V6 + V7 + V8 + V9 + V10, 
+                     data = training) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_factor_predictors())
+
+
+#creating workflow
+knnworkflow_tune = workflow() %>% 
+  add_recipe(knnrecipe_1) %>% 
+  add_model(knn_mod_tune)
+
+```
+
+```{r}
+#tuning
+
+knn_grid_search <-
+  tune_grid(
+    knnworkflow_tune,
+    resamples = training_cvs,
+    grid = k_grid
+  )
+```
+
+Collecting Metrics
+
+```{r}
+knn_grid_search %>% collect_metrics()
+
+knn_grid_search %>% collect_metrics() %>%
+  filter(.metric == 'roc_auc') %>%
+  slice_max(mean)
+
+```

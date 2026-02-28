@@ -1,0 +1,167 @@
+---
+title: "DumbLDAModel"
+format: html
+editor: source
+---
+
+```{r}
+#| label: libraries-r
+
+
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(discrim)
+```
+
+## Loading and Transforming Data
+
+```{r}
+training = read_csv("C:/Users/lucas/Desktop/Thesis/Code/annotatedmelAW.csv") #AW annotated data
+
+training = training %>% mutate(Humpback = as.factor(Humpback))
+
+testing1 = read_csv("C:/Users/lucas/Desktop/Thesis/Code/annotatedmelAS.csv")
+
+testing1 = testing1 %>% mutate(Humpback = as.factor(Humpback))
+
+
+testing2 = read_csv("C:/Users/lucas/Desktop/Thesis/Code/annotatedmelSS.csv")
+
+testing2 = testing2 %>% mutate(Humpback = as.factor(Humpback))
+
+
+```
+
+## Creating Cross-Validation Folds
+
+```{r}
+set.seed(457)
+training_cvs = vfold_cv(training, v = 10)
+
+class(training_cvs)
+```
+
+## Creating LDA Model
+
+```{r}
+#creating model
+lda_mod1 = discrim_linear() %>%
+  set_engine("MASS") %>%
+  set_mode("classification")
+
+#creating recipe
+ldarecipe_1 = recipe(Humpback ~ V1 + V2 + V3 + V4 + V5 + 
+                       V6 + V7 + V8 + V9 + V10, 
+                     data = training) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_factor_predictors())
+
+
+#creating workflow
+ldaworkflow_1 = workflow() %>% 
+  add_recipe(ldarecipe_1) %>% 
+  add_model(lda_mod1)
+
+#fitting model
+ldafit_1 = ldaworkflow_1 %>% fit(training) 
+
+
+#confusion matrix
+training %>%
+  mutate(
+    ldapreds = predict(ldafit_1, training)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = ldapreds)
+```
+
+## Cross Validating
+
+```{r}
+#fitting CVs
+ldafitcv_1 = ldaworkflow_1 %>% fit_resamples(training_cvs,
+                metrics = metric_set(accuracy, roc_auc, precision, specificity, recall)
+                )
+
+#results
+collect_metrics(ldafitcv_1)
+#0.643
+```
+
+## Validating on Other Models
+
+```{r}
+
+#as.data.frame(predict(ldafit_1, testing1)$.pred_class, testing1$Humpback)
+
+
+#testing1 = testing1 %>%
+#  mutate(
+#    ldapreds = predict(ldafit_1, testing1)$.pred_class
+#  )
+
+#testing1 %>%
+#  conf_mat(truth = Humpback,
+#           estimate = ldapreds)
+#
+#recall(testing1, Humpback, ldapreds)
+
+#0.880 recall
+
+
+#recall is minimizing false negatives, (FN = predicting no HB when it is a HB)
+
+
+
+
+#as.data.frame(predict(ldafit_1, testing2)$.pred_class, testing1$Humpback)
+
+
+testing2 = testing2 %>%
+  mutate(
+    ldapreds = predict(ldafit_1, testing2)$.pred_class
+  )
+
+testing2 %>%
+  conf_mat(truth = Humpback,
+           estimate = ldapreds)
+
+recall(testing2, Humpback, ldapreds)
+
+#0.411 recall
+
+
+
+
+
+
+
+```
+
+## Outputting Annotated File
+
+```{r}
+
+
+#creating dummy low and high frequencies for now
+
+testing2$low = rep(0, times = nrow(testing2))
+testing2$high = rep(1000, times = nrow(testing2))
+
+
+testing2output = testing2 %>% filter(ldapreds == 1) %>% rename("Begin Time (s)" = Time_Start, "End Time (s)" = Time_End, "Low Freq (Hz)" = low,
+                                          "High Freq (Hz)" = high) %>% 
+  dplyr::select(c("Begin Time (s)", "End Time (s)", "Low Freq (Hz)", "High Freq (Hz)"))
+
+
+
+#create output 
+
+
+
+write.table(testing2output, "LDApreds.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+```

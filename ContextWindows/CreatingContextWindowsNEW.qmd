@@ -1,0 +1,460 @@
+---
+title: "CreatingContextWindows2"
+format: html
+editor: source
+---
+
+## Context Windows
+
+The context window length, corresponds to a 3.9124-s long spectrogram image. A context window of 3.9124-s length is large enough to contain an entire unit but not large enough to contain two units (on average).
+
+## Loading Libraries
+
+```{r}
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(discrim)
+```
+
+## Loading In Data
+
+```{r}
+annotatedMelAW = read.csv(here::here("annotatedmelAWoverlap.csv"))
+# first 30 minutes is in this data set
+
+#annotatedMelAW %>% arrange(desc(Time_End))
+```
+
+
+
+
+
+
+
+## Creating Empty Data Frame
+
+
+```{r}
+
+#numcep is the number of mel coefficients used
+#num_time_steps is the number of time steps recorded in an observation
+
+#create_observations takes in the above parameters,
+  #outputs a data frame with num_time_steps*numcep columns, 
+  #and 'Time_Start', 'Time_End' and Humpback (0/1) columns
+
+create_observations = function(numcep, num_time_steps){
+  #testdf = data.frame(nrow = num_time_steps*numcep)
+  #print(testdf)
+  colnamelist = list()
+  for (i in 1:numcep){
+    for (j in 1:num_time_steps){
+      #print(i)
+      #print(j)
+      #testdf = cbind(testdf, paste0("V1_",i))
+      colnamelist = append(colnamelist, paste0("V", i, "_", j))
+    }
+  }
+  #adding Time_Start and Time_End variables to end of each row
+  colnamelist = append(colnamelist, "Time_Start")
+  colnamelist = append(colnamelist, "Time_End")
+  colnamelist = append(colnamelist, "Humpback")
+
+
+  dummydf = data.frame(matrix(nrow = 1, ncol = num_time_steps*numcep + 3))
+  
+  colnames(dummydf) = colnamelist
+  
+  
+  
+  
+  
+  return(dummydf)
+  
+}
+#emptydf = create_observations(numcep = 8, num_time_steps = 40)
+
+#emptydf
+```
+
+
+
+## Creating Observations
+
+
+```{r}
+
+#function for specifically overlapped time steps (0.5 second increases, 0.5 second overlap)
+
+
+# dummydf is the empty df created in the above 'create_observations' function
+# whaledf is the full mel coefficient data frame
+# num_time_steps is the number of time steps 
+# numcep is the number of cepstrum coefficients
+
+
+
+add_observations = function(whaledf, num_time_steps, numcep){
+  
+  
+  dummydf = create_observations(numcep, num_time_steps)
+
+  #getting initial times
+  #filtering on initial times
+  initials = whaledf %>% pull(Time_Start)
+  
+  # for each initial row in which an observation is desired
+  for (i in initials){
+    
+    
+    
+    #i represents the start time of an initial observation (context window)
+    
+    #create observation by looping over the number of time steps
+    
+    #if statement to avoid including observations at end of the file
+    if (nrow(whaledf %>% 
+             filter(i <= Time_Start & Time_Start < i + 0.05*num_time_steps)) == 
+        num_time_steps)
+      {
+        # determining whether the window has any whale call
+        if (nrow(whaledf %>% 
+             filter(i <= Time_Start & Time_Start < i + 0.05*num_time_steps) %>%
+             filter(Humpback == 1)) >= 1){
+          
+        whale = 1
+        } else {
+        whale = 0
+        }
+   
+          
+      coeffs = whaledf %>% 
+        filter(i <= Time_Start & Time_Start < i + 0.05*num_time_steps) %>% 
+        dplyr::select(V1:paste0("V", numcep))
+    
+    
+      #c(as.matrix()) creates a vector out of a data.frame, going down columns
+      dummydf = rbind(dummydf, 
+                      c(as.matrix(coeffs), i, i + 0.05*num_time_steps, whale))
+      }
+    
+    
+    #need to create conditionals for end of file
+  }
+  return(dummydf)
+}
+
+
+#positives = 
+  
+  
+
+
+
+table((add_observations(whaledf = annotatedMelAW %>% 
+                   filter(0 <= Time_Start & Time_Start < 20),num_time_steps=40, 
+                          numcep = 12) %>% drop_na())$Humpback)
+
+
+```
+
+
+
+
+### Creating Training Data
+
+```{r}
+trainingdata = add_observations(whaledf = annotatedMelAW %>% 
+                   filter(0 <= Time_Start & Time_Start < 200),num_time_steps=40, 
+                          numcep = 12) %>% drop_na()
+
+trainingdata = trainingdata %>% mutate(Humpback = as.factor(Humpback))
+
+#trainingdata %>% filter(Humpback ==1)
+
+table(trainingdata$Humpback)
+```
+
+### Creating Testing Data
+
+
+```{r}
+
+testingdata = add_observations(whaledf = annotatedMelAW %>% 
+                   filter(200 <= Time_Start & Time_Start < 400),num_time_steps=40, 
+                          numcep = 12) %>% drop_na()
+
+
+testingdata = testingdata %>% mutate(Humpback = as.factor(Humpback))
+
+table(testingdata$Humpback)
+
+```
+
+
+### Creating Cross-Validation Folds
+
+```{r}
+set.seed(326)
+training_cvs = vfold_cv(trainingdata, v = 10)
+
+```
+
+## LDA
+
+### Creating LDA Model
+
+```{r}
+#creating model
+lda_mod1 = discrim_linear() %>%
+  set_engine("MASS") %>%
+  set_mode("classification")
+
+#creating recipe
+ldarecipe_1 = recipe(Humpback ~ ., data = trainingdata) %>%
+  step_rm(Time_Start, Time_End) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_factor_predictors())
+
+
+#creating workflow
+ldaworkflow_1 = workflow() %>% 
+  add_recipe(ldarecipe_1) %>% 
+  add_model(lda_mod1)
+
+#fitting model
+ldafit_1 = ldaworkflow_1 %>% fit(trainingdata) 
+
+#collinearity warning sometimes
+
+#confusion matrix
+trainingdata %>%
+  mutate(
+    ldapreds = predict(ldafit_1, trainingdata)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = ldapreds)
+```
+
+
+```{r}
+trainingdata %>%
+  mutate(
+    ldapreds = predict(ldafit_1, trainingdata)$.pred_class
+  ) %>% select(Humpback, ldapreds, Time_Start, Time_End)
+
+
+#ldaworkflow_1 %>% fit_resamples(training_cvs)
+
+
+ldafitcv_1 = ldaworkflow_1 %>% fit_resamples(training_cvs,
+                metrics = metric_set(accuracy, roc_auc, precision, specificity, recall)
+                )
+collect_metrics(ldafitcv_1)
+
+
+2236/(2336 + 60)
+```
+
+### Predicting on Testing Data
+
+```{r}
+
+#confusion matrix
+testingdata %>%
+  mutate(
+    ldapreds = predict(ldafit_1, testingdata)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = ldapreds)
+
+
+
+testingdata %>%
+  mutate(
+    ldapreds = predict(ldafit_1, testingdata)$.pred_class
+  ) %>% 
+  select(Humpback, ldapreds, Time_Start, Time_End)
+
+
+
+testingdata %>%
+  mutate(
+    ldapreds = as.factor(predict(ldafit_1, testingdata)$.pred_class)
+  ) %>% recall(truth = Humpback, estimate =  ldapreds, event_level = 'second')
+```
+
+### Computing Metrics on Validation Data Set
+
+```{r}
+
+```
+
+
+
+### Create Output For Raven Visualization
+
+
+
+
+```{r}
+testingoutput = testingdata %>%
+  mutate(ldapreds = predict(ldafit_1, testingdata)$.pred_class) %>% 
+  dplyr::select(Time_Start, Time_End, Humpback, ldapreds)
+
+
+
+
+#creating dummy low and high frequencies for now
+
+testingoutput = testingoutput %>% mutate(low = rep(0, times = nrow(testingoutput)),
+                         high = rep(1000, times = nrow(testingoutput)))
+
+
+
+testingoutput = testingoutput %>% filter(ldapreds == 1) %>% 
+  rename("Begin Time (s)" = Time_Start, "End Time (s)" = Time_End, 
+         "Low Freq (Hz)" = low, "High Freq (Hz)" = high) %>% 
+  dplyr::select(c("Begin Time (s)", "End Time (s)", 
+                  "Low Freq (Hz)", "High Freq (Hz)"))
+
+
+
+#create output 
+
+
+
+write.table(testingoutput, "fulloverlapldapreds.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+```
+
+## KNN
+
+### Creating KNN Model
+
+```{r}
+#creating model
+knn_mod1 = nearest_neighbor(neighbors = 100) %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
+
+#creating recipe
+knnrecipe_1 = recipe(Humpback ~ ., 
+                     data = trainingdata) %>%
+  step_rm(Time_Start, Time_End) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_factor_predictors())
+
+
+#creating workflow
+knnworkflow_1 = workflow() %>% 
+  add_recipe(knnrecipe_1) %>% 
+  add_model(knn_mod1)
+
+#fitting model
+knnfit_1 = knnworkflow_1 %>% fit(trainingdata) 
+
+
+#confusion matrix
+trainingdata %>%
+  mutate(
+    knnpreds = predict(knnfit_1, trainingdata)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = knnpreds)
+
+
+
+
+```
+
+
+### KNN Predicting on Testing
+
+```{r}
+
+#confusion matrix
+testingdata %>%
+  mutate(
+    knnpreds = predict(knnfit_1, testingdata)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = knnpreds)
+
+testingdata %>%
+  mutate(
+    knnpreds = as.factor(predict(knnfit_1, testingdata)$.pred_class)
+  ) %>% recall(truth = Humpback, estimate =  knnpreds, event_level = 'second')
+
+
+```
+
+## Decision Tree
+
+
+
+### Creating Model
+
+```{r}
+#model
+decision_tree_mod1 = decision_tree() %>%
+  set_engine("rpart") %>%
+  set_mode("classification")
+
+#recipe
+treerecipe_1 = recipe(Humpback ~ ., 
+                     data = trainingdata) %>%
+  step_rm(Time_Start, Time_End) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_factor_predictors())
+
+#workflow
+tree_wflow = workflow() %>%
+  add_model(decision_tree_mod1) %>% 
+  add_recipe(treerecipe_1)
+
+
+#fitting model
+tree_fit_1 = tree_wflow %>% fit(trainingdata) 
+
+
+#confusion matrix
+trainingdata %>%
+  mutate(
+    treepreds = predict(tree_fit_1, trainingdata)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = treepreds)
+```
+
+### DT Predicting on Testing
+
+
+
+```{r}
+#confusion matrix
+testingdata %>%
+  mutate(
+    treepreds = predict(tree_fit_1, testingdata)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = treepreds)
+
+testingdata %>%
+  mutate(
+    treepreds = as.factor(predict(tree_fit_1, testingdata)$.pred_class)
+  ) %>% recall(truth = Humpback, estimate =  treepreds, event_level = 'second')
+
+
+```
+
+
+
+
