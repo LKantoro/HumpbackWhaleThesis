@@ -1,0 +1,409 @@
+---
+title: "Model Tuning"
+format: html
+editor: source
+---
+
+## Loading Libraries
+
+```{r}
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(discrim)
+```
+
+## Setting Seed for Consistent Randomization
+
+```{r}
+set.seed(745)
+```
+
+
+## Loading In Data
+
+```{r}
+annotatedMelAW = read.csv(here::here("annotatedmelAWoverlap.csv"))
+# first 30 minutes is in this data set
+
+#annotatedMelAW %>% arrange(desc(Time_End))
+```
+
+
+## Creating Empty Data Frame
+
+
+```{r}
+
+#numcep is the number of mel coefficients used
+#num_time_steps is the number of time steps recorded in an observation
+
+#create_observations takes in the above parameters,
+  #outputs a data frame with num_time_steps*numcep columns, 
+  #and 'Time_Start', 'Time_End' and Humpback (0/1) columns
+
+create_observations = function(numcep, num_time_steps){
+  #testdf = data.frame(nrow = num_time_steps*numcep)
+  #print(testdf)
+  colnamelist = list()
+  for (i in 1:numcep){
+    for (j in 1:num_time_steps){
+      #print(i)
+      #print(j)
+      #testdf = cbind(testdf, paste0("V1_",i))
+      colnamelist = append(colnamelist, paste0("V", i, "_", j))
+    }
+  }
+  #adding Time_Start and Time_End variables to end of each row
+  colnamelist = append(colnamelist, "Time_Start")
+  colnamelist = append(colnamelist, "Time_End")
+  colnamelist = append(colnamelist, "Humpback")
+
+
+  dummydf = data.frame(matrix(nrow = 1, ncol = num_time_steps*numcep + 3))
+  
+  colnames(dummydf) = colnamelist
+  
+  
+  
+  
+  
+  return(dummydf)
+  
+}
+#emptydf = create_observations(numcep = 8, num_time_steps = 40)
+
+#emptydf
+```
+
+
+
+## Creating Observations
+
+
+```{r}
+
+#function for specifically overlapped time steps (0.5 second increases, 0.5 second overlap)
+
+
+# dummydf is the empty df created in the above 'create_observations' function
+# whaledf is the full mel coefficient data frame
+# num_time_steps is the number of time steps 
+# numcep is the number of cepstrum coefficients
+
+
+
+add_observations = function(whaledf, num_time_steps, numcep){
+  
+  
+  dummydf = create_observations(numcep, num_time_steps)
+
+  #getting initial times
+  #filtering on initial times
+  initials = whaledf %>% pull(Time_Start)
+  
+  # for each initial row in which an observation is desired
+  for (i in initials){
+    
+    
+    
+    #i represents the start time of an initial observation (context window)
+    
+    #create observation by looping over the number of time steps
+    
+    #if statement to avoid including observations at end of the file
+    if (nrow(whaledf %>% 
+             filter(i <= Time_Start & Time_Start < i + 0.05*num_time_steps)) == 
+        num_time_steps)
+      {
+        # determining whether the window has any whale call
+        if (nrow(whaledf %>% 
+             filter(i <= Time_Start & Time_Start < i + 0.05*num_time_steps) %>%
+             filter(Humpback == 1)) >= 1){
+          
+        whale = 1
+        } else {
+        whale = 0
+        }
+   
+          
+      coeffs = whaledf %>% 
+        filter(i <= Time_Start & Time_Start < i + 0.05*num_time_steps) %>% 
+        dplyr::select(V1:paste0("V", numcep))
+    
+    
+      #c(as.matrix()) creates a vector out of a data.frame, going down columns
+      dummydf = rbind(dummydf, 
+                      c(as.matrix(coeffs), i, i + 0.05*num_time_steps, whale))
+      }
+    
+    
+    #need to create conditionals for end of file
+  }
+  return(dummydf)
+}
+
+
+#positives = 
+  
+  
+
+
+
+table((add_observations(whaledf = annotatedMelAW %>% 
+                   filter(0 <= Time_Start & Time_Start < 200),num_time_steps=40, 
+                          numcep = 12) %>% drop_na())$Humpback)
+
+
+```
+
+
+
+
+### Creating Balanced Training Data
+
+```{r}
+trainingdata = add_observations(whaledf = annotatedMelAW %>% 
+                   filter(0 <= Time_Start & Time_Start < 200),num_time_steps=40, 
+                          numcep = 12) %>% drop_na()
+
+trainingdata = trainingdata %>% mutate(Humpback = as.factor(Humpback))
+
+
+table(trainingdata$Humpback)
+
+numnegatives = nrow(trainingdata %>% filter(Humpback == 0))
+
+
+# taking row numbers of positive observations
+
+trainingpositives = trainingdata %>% filter(Humpback == 1)
+
+
+
+# choosing random sample of positive observations
+trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
+
+
+trainingdatabalanced = rbind(trainingdata %>% filter(Humpback == 0),
+                              trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
+                                  )
+
+table(trainingdatabalanced$Humpback)
+```
+
+### Creating Testing Data
+
+
+```{r}
+
+testingdata = add_observations(whaledf = annotatedMelAW %>% 
+                   filter(200 <= Time_Start & Time_Start < 400),num_time_steps=40, 
+                          numcep = 12) %>% drop_na()
+
+
+testingdata = testingdata %>% mutate(Humpback = as.factor(Humpback))
+
+table(testingdata$Humpback)
+
+```
+
+
+
+### Creating Training Data Cross-Validation Folds
+
+```{r}
+training_cvs = vfold_cv(trainingdatabalanced, v = 10)
+
+```
+
+
+
+### Creating Evaluation Windows on Testing Data
+
+
+
+
+
+```{r}
+creating_eval_windows = function(predictions, length){
+  # initial times
+  initial = predictions %>% pull(Time_Start) %>% first()
+  final = predictions %>% pull(Time_Start) %>% last()
+  initials = c()
+  starttime = initial
+  
+  # for all initial times that fit in the testing window:
+  while (starttime + length <= final){
+  
+    newtime = starttime
+    initials = c(initials, newtime)
+    starttime = starttime + length
+    
+  }
+  return(initials)
+  
+}
+
+#creating_eval_windows(testingpredictions, 1)
+
+```
+
+
+## Creating Rolling Aggregation Windows
+
+
+```{r}
+
+# predictions is a matrix with time start, time end, prediction, and Humpback
+# length is the length of each evaluation window
+# threshold is the proportion of positives required for the threshold window
+
+
+testing_eval_windows = function(predictions, length, threshold){
+  
+  initials = creating_eval_windows(predictions, length)
+  
+  init_matrix = matrix(nrow = 0, ncol = 5)
+  
+  #create data frame with state time, end time, proportion, and 0/1 based on prop vs threshold, and truth
+
+  results = data.frame(init_matrix)
+  
+  for (i in initials){
+    #print(predictions %>% filter(i <= Time_Start & Time_Start < i + length))
+    
+    # if enough windows predicted a whale in this evaluation window
+    if (predictions %>% filter(i <= Time_Start & Time_Start < i + length) %>% 
+        summarise(proportion = sum(preds == 1) / n()) %>% pull(proportion) > threshold){
+      
+
+      row = c("Time_Start" = i, 
+              "Time_End" = i + length, 
+              "proportion" = predictions %>% filter(i <= Time_Start & Time_Start < i + length) %>% 
+        summarise(proportion = sum(preds == 1) / n()) %>% pull(proportion), 
+              "prediction" = 1,
+              "Humpback" = as.numeric(nrow(predictions %>% filter(i <= Time_Start & Time_Start < i + length) %>% 
+  filter(Humpback == 1)) >= 1))
+    
+    # if not enough windows predicted a whale in this evaluation window
+  
+    } else{
+      row = c("Time_Start" = i, 
+        "Time_End" = i + length, 
+        "proportion" = predictions %>% filter(i <= Time_Start & Time_Start < i + length) %>% 
+        summarise(proportion = sum(preds == 1) / n()) %>% pull(proportion), 
+        "prediction" = 0,
+        "Humpback" = as.numeric(nrow(predictions %>% filter(i <= Time_Start & Time_Start < i + length) %>% 
+  filter(Humpback == 1)) >= 1))
+      
+    }
+    #print(row)
+    results = rbind(results, row)
+  }
+  colnames(results) = c("Time_Start", "Time_End", "proportion", "prediction", "Humpback")
+  results = results%>% mutate(prediction = as.factor(prediction),
+                              Humpback = as.factor(Humpback))
+  return(results)
+  
+
+  
+  
+  # end observation at start + length
+  # if number of time steps that predicted a whale is >= proportion
+    # make this observation a 1
+    # else: make it 0
+  # start new observation at next time step
+  # repeat until end of data file
+  
+  
+  
+  
+  
+}
+
+```
+
+
+
+
+
+## Creating Random Forest Model
+
+
+```{r}
+
+#creating model
+rfmod_1 <- rand_forest(trees = 1000) %>%
+  set_engine("ranger") %>%               
+  set_mode("classification")            
+
+#creating recipe
+rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdatabalanced) %>%
+  step_rm(Time_Start, Time_End) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_factor_predictors())
+
+
+#creating workflow
+rfworkflow_1 <- workflow() %>%
+  add_model(rfmod_1) %>%
+  add_recipe(rfrecipe_1)
+
+
+
+#fitting model
+rffit_1 <- rfworkflow_1 %>% fit(data = trainingdatabalanced)
+
+
+```
+
+
+
+### Cross Validating
+
+```{r}
+trainingdatabalanced %>%
+  mutate(
+    rfpreds = predict(rffit_1, trainingdatabalanced)$.pred_class
+  ) %>% dplyr::select(Humpback, rfpreds, Time_Start, Time_End)
+
+
+#ldaworkflow_1 %>% fit_resamples(training_cvs)
+
+
+rffitcv_1 = rfworkflow_1 %>% fit_resamples(training_cvs,
+                metrics = metric_set(accuracy, roc_auc, precision, specificity, recall)
+                )
+collect_metrics(rffitcv_1)
+
+
+```
+
+
+
+### Testing Using Evaluation Windows
+
+
+```{r}
+
+
+rfwindowpredictions = testing_eval_windows(testingpredictionsrf, length = 1, threshold = 0.3)
+
+# confusion matrix
+rfwindowpredictions %>%
+  conf_mat(truth = Humpback,
+           estimate = prediction)
+
+# recall metric
+rfwindowpredictions %>% 
+  recall(truth = Humpback, estimate = prediction, event_level = 'second')
+```
+
