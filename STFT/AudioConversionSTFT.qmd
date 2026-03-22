@@ -1,0 +1,68 @@
+---
+title: "AudioConversionSTFT"
+format: html
+editor: visual
+---
+
+## Loading Libraries
+
+```{r}
+#| label: loading-libraries
+#| warning: false
+
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(e1071)
+
+```
+
+## Reading in files
+
+```{r}
+audio_dataAW <- readWave("C:/Users/lucas/Desktop/Thesis/Code/TrainingData/671658014.180928183606-AW.wav", from = 0, to = 1, units = "seconds")
+
+```
+
+## Extracting Raw Audio Samples
+
+```{r}
+raw_samplesAW <- audio_dataAW@left #mono data has identical left and right values
+
+#96000 sampling rate is 96000 samples a second
+length(raw_samplesAW) # = 96000 * (length in seconds)
+
+#therefore a 0.1 second window is 9600 samples
+```
+
+```{r}
+apple = stft(raw_samplesAW, 
+             win = 128, inc = 128, coef= 96000, wtype = "rectangle.window") 
+#maximum window size is 128
+
+apple
+
+#coef argument creates the number of coefficients (columns), default is 64
+
+
+#number of rows = 96000*(num seconds)/(window value of stft function)
+
+#each row is a time window, each column is a coefficient
+
+#need to create bins and find coefficient for each bin for each time window
+
+#'Output: fft gives a single frequency spectrum, stft gives a series of spectra or a spectrogram.'
+
+#stft is better when you want to understand changes in frequencies over time
+#fft is better when you are interested in overall frequencies
+
+apple$values[1,1]
+apple$values[1,2]
+apple$values[1,3]
+apple$values[1,62]
+apple$values[1,63]
+apple$values[1,64]
+
+```
