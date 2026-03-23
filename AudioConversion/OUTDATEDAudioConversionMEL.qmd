@@ -1,0 +1,410 @@
+---
+title: "AudioConversation Mel"
+format: html
+editor: source
+---
+
+Converts audio file into Mel Frequency Cepstrum Coefficients. 
+Time is split into 0.10 second long chunks, with a 0.05 second overlap.
+
+
+```{r}
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+```
+
+```{r}
+source("AudioConversionFunction.R")
+
+```
+
+```{r}
+mel_observation_dataframe = function(wav_file_path, 
+                                     annotation_file_path,
+                                     output_file_name,
+                                     start_time = 0,
+                                     end_time = 1,
+                                     step_time = 0.1,
+                                     overlap_time = 0.05,
+                                     num_ceps = 12
+                                     ){
+
+  timesteps = melcoeffs(wave_file = wav_file_path,
+            start_time = start_time,
+            end_time = end_time,
+            step_time = step_time,
+            overlap_time = overlap_time,
+            num_ceps = 12)
+  
+  
+  ranges = import_annotations(annotation_file_path)
+  
+  
+  overlapstart = lapply(timesteps$Time_Start, check_in_ranges, ranges = ranges, 
+                        timesteplength = step_time)
+  
+  annotatedfull = creating_observation_dataframe(overlaps = overlapstart,
+                                                 timesteps = timesteps)
+  
+  
+  annotatedfull = add_instances(annotatedfull)
+  
+  write.csv(annotatedfull, here::here(output_file_name))
+  
+  return(annotatedfull)
+  
+
+}
+
+
+
+test = mel_observation_dataframe(wav_file_path = here::here("TrainingData", "AW", "671658014.180928183606-AW.wav"),
+            annotation_file_path = here::here("TrainingData", "AW", "AWhb.xlsx"),
+            output_file_name = "testing.csv",
+            start_time = 0,
+            end_time = 1,
+            step_time = 0.1,
+            overlap_time = 0.05,
+            num_ceps = 12)
+
+
+```
+
+
+
+## Reading in files
+
+```{r}
+audio_dataAW <-readWave(here::here("TrainingData", "AW", "671658014.180928183606-AW.wav"),
+                        from = 0, to = 0.5, units = "hours")
+```
+
+```{r}
+audio_dataAS <-readWave(here::here("TrainingData", "AS", "671658014.180929033558-AS.wav"),
+                        from = 0, to = 0.5, units = "hours")
+```
+
+```{r}
+audio_dataSS <-readWave(here::here("TrainingData", "SS", "671658014.181007213415-SS.wav"),
+                        from = 0, to = 0.5, units = "hours")
+
+```
+
+## Extracting Raw Audio Samples
+
+```{r}
+raw_samplesAW <- audio_dataAW@left #mono data has identical left and right values
+```
+
+```{r}
+raw_samplesAS <- audio_dataAS@left #mono data has identical left and right values
+```
+
+```{r}
+raw_samplesSS <- audio_dataSS@left #mono data has identical left and right values
+```
+
+## Computing Mel Coefficients
+
+```{r}
+melcoeffsAW = melfcc(audio_dataAW, wintime = 0.1, hoptime = 0.05, numcep = 12, bwidth = 1)
+
+
+melcoeffsAWlowerhz = melfcc(audio_dataAW, wintime = 0.1, hoptime = 0.05, 
+                            numcep = 12, bwidth = 1, minfreq = 0, maxfreq = 2000)
+```
+
+```{r}
+#melcoeffsAS = melfcc(audio_dataAS, wintime = 0.1, hoptime = 0.1, numcep = 12, bwidth = 1)
+```
+
+```{r}
+#melcoeffsSS = melfcc(audio_dataSS, wintime = 0.1, hoptime = 0.1, numcep = 12, bwidth = 1)
+
+```
+
+## Adding Time Steps to Matrix
+
+```{r}
+#not sure if these are the correct time step bounds, investigate further
+
+#17999 is for 30 minutes
+timestepsAW = as.data.frame(cbind(melcoeffsAW, 
+              "Time_Start" = seq(from = 0, to = 1799.9, by = 0.05),
+              "Time_End" = seq(from = .1, to = 1799.95, by = 0.05)))
+
+
+#17999 is for 30 minutes
+timestepsAWlowerhz = as.data.frame(cbind(melcoeffsAWlowerhz, 
+              "Time_Start" = seq(from = 0, to = 1799.9, by = 0.05),
+              "Time_End" = seq(from = .1, to = 1799.95, by = 0.05)))
+
+```
+
+```{r}
+#timestepsAS = as.data.frame(cbind(melcoeffsAS, 
+#              "Time_Start" = seq(from = 0, to = 1799.8, length.out = 17999),
+#              "Time_End" = seq(from = .1, to = 1799.9, length.out = 17999)))
+```
+
+```{r}
+timestepsSS = as.data.frame(cbind(melcoeffsSS, 
+              "Time_Start" = seq(from = 0, to = 1799.8, length.out = 17999),
+              "Time_End" = seq(from = .1, to = 1799.9, length.out = 17999)))
+
+```
+
+```{r}
+#write.csv(timesteps, "timestepsAW.csv")
+```
+
+## Reading in a Training Data Set
+
+```{r}
+annotatedAW = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
+
+annotatedAWlowerhz = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
+
+```
+
+```{r}
+
+annotatedAS = read_excel(here::here("TrainingData", "AS", "AScopy.xlsx"))
+```
+
+```{r}
+
+annotatedSS = read_excel(here::here("TrainingData", "SS", "SShb.xlsx"))
+```
+
+## Cleaning Training Data Set
+
+```{r}
+annotatedAW = annotatedAW %>% rename(Begin_Time = 'Begin Time (s)',
+                     End_Time = 'End Time (s)')
+
+annotatedAWlowerhz = annotatedAWlowerhz %>% rename(Begin_Time = 'Begin Time (s)',
+                     End_Time = 'End Time (s)')
+```
+
+```{r}
+#annotatedAS = annotatedAS %>% rename(Begin_Time = 'Begin Time (s)',
+#                     End_Time = 'End Time (s)')
+```
+
+```{r}
+annotatedSS = annotatedSS %>% rename(Begin_Time = 'Begin Time (s)',
+                     End_Time = 'End Time (s)')
+```
+
+
+## Extracting Ranges of Calls
+
+```{r}
+
+whalerangesAW = apply(cbind(annotatedAW$Begin_Time, annotatedAW$End_Time)
+, 1, list)
+
+
+whalerangesAWlowerhz = apply(cbind(annotatedAWlowerhz$Begin_Time, annotatedAWlowerhz$End_Time)
+, 1, list)
+```
+
+```{r}
+#whalerangesAS = apply(cbind(annotatedAS$Begin_Time, annotatedAS$End_Time)
+#, 1, list)
+```
+
+```{r}
+whalerangesSS = apply(cbind(annotatedSS$Begin_Time, annotatedSS$End_Time)
+, 1, list)
+
+
+#whaleranges[[1]][[1]]
+
+#whaleranges
+```
+
+## Check if Number is within the Range of any list of Numbers (AI Code - modified)
+
+```{r}
+#' Checks if a number falls within any of a list of specified ranges.
+#'
+#' @param number The numeric value to check.
+#' @param ranges A list of numeric vectors, where each vector represents a range
+#'   with two elements: `c(start, end)`.
+#' @return A logical value: `TRUE` if the number is within any range, `FALSE` otherwise.
+#' @examples
+#' check_in_ranges(5, list(c(1, 10), c(15, 20))) # Returns TRUE
+#' check_in_ranges(12, list(c(1, 10), c(15, 20))) # Returns FALSE
+#' check_in_ranges(18, list(c(1, 10), c(15, 20))) # Returns TRUE
+check_in_ranges <- function(number, ranges, timesteplength = 0.1) {
+  # Initialize a flag to track if the number is found within any range
+  found <- FALSE
+
+  # Iterate through each range in the list
+  for (r in 1:length(ranges)) {
+    #print(r)
+    #print(ranges[[r]][[1]][2])
+    # Check if the number is within the current range (inclusive)
+    if (number <= ranges[[r]][[1]][2] && 
+        number + timesteplength >= ranges[[r]][[1]][1]) {
+      found <- TRUE
+      break # Exit the loop as soon as a match is found
+    }
+  }
+
+  return(c(number, found))
+}
+```
+
+```{r}
+#testing function
+#lapply(c(1,2), check_in_ranges, ranges = whalerangesAW)
+```
+
+## Apply Ranges Function to Timesteps
+
+```{r}
+
+overlapstartAW = lapply(timestepsAW$Time_Start, check_in_ranges, ranges = whalerangesAW)
+
+overlapstartAWlowerhz = lapply(timestepsAWlowerhz$Time_Start, check_in_ranges, ranges = whalerangesAWlowerhz)
+
+```
+
+```{r}
+#overlapstartAS = lapply(timestepsAS$Time_Start, check_in_ranges, ranges = whalerangesAS)
+```
+
+```{r}
+overlapstartSS = lapply(timestepsSS$Time_Start, check_in_ranges, ranges = whalerangesSS)
+
+```
+
+## Merging Output of Function With Mel Coefficient Datasets
+
+```{r}
+
+#data frame stating whether start of time window is contained in a hb whale call
+startmatcheddfAW = as.data.frame(t(as.data.frame(overlapstartAW))) %>%
+  rename(Time_Start = V1, Humpback = V2)
+
+
+annotatedfullAW = full_join(timestepsAW, startmatcheddfAW, 
+                          by = join_by(Time_Start == Time_Start))
+
+
+
+startmatcheddfAWlowerhz = as.data.frame(t(as.data.frame(overlapstartAWlowerhz))) %>%
+  rename(Time_Start = V1, Humpback = V2)
+
+
+annotatedfullAWlowerhz = full_join(timestepsAWlowerhz, startmatcheddfAWlowerhz, 
+                          by = join_by(Time_Start == Time_Start))
+```
+
+```{r}
+#startmatcheddfAS = as.data.frame(t(as.data.frame(overlapstartAS))) %>%
+#  rename(Time_Start = V1, Humpback = V2)
+
+
+#annotatedfullAS = full_join(timestepsAS, startmatcheddfAS, 
+#                          by = join_by(Time_Start == Time_Start))
+
+```
+
+```{r}
+startmatcheddfSS = as.data.frame(t(as.data.frame(overlapstartSS))) %>%
+  rename(Time_Start = V1, Humpback = V2)
+
+
+annotatedfullSS = full_join(timestepsSS, startmatcheddfSS, 
+                          by = join_by(Time_Start == Time_Start))
+
+
+```
+
+## Adding Instance Numbers
+
+```{r}
+
+add_instances =  function(dataframe){
+  
+  
+  #
+  dataframe$instances = rep(0, times = nrow(dataframe))
+  dataframe$initial = rep(0, times = nrow(dataframe))
+  
+  #recording successive positive/negative observations
+  dataframe$streak = rep(0, times = nrow(dataframe))
+  
+  instances = 0
+  
+  for (i in 1:nrow(dataframe)) {
+    # Access the current row using df[i]
+    current = dataframe$Humpback[i]
+    
+    
+    #if on the first row, assume the previous was 0
+    if (i == 1) {
+      previous = 0
+    }
+    
+    #if not on first row, set previous value to use as comparison
+    if (i > 1) {
+      previous = dataframe$Humpback[i - 1]
+      
+    }
+    
+    #if previous has no whale call and current has whale call
+    if (previous == 0 & current == 1){
+      #create new instance since it is a new whale call
+      instances = instances + 1
+      dataframe$instances[i] = instances
+      
+      #indiciate that this is the initilization of a new whale call
+      dataframe$initial[i] = 1
+      
+    }
+    
+    #if previous has a whale call and current also has a whale call
+    if (previous == 1 & current == 1){
+      dataframe$instances[i] = instances
+    }
+  }
+  
+  result =  dataframe
+}
+```
+
+```{r}
+annotatedfullAW = add_instances(annotatedfullAW)
+
+
+annotatedfullAWlowerhz = add_instances(annotatedfullAWlowerhz)
+
+```
+
+```{r}
+annotatedfullSS = add_instances(annotatedfullSS)
+```
+
+```{r}
+write.csv(annotatedfullAW, "annotatedmelAWoverlap.csv")
+
+write.csv(annotatedfullAWlowerhz, "annotatedmelAWlowerhzoverlap.csv")
+
+```
+
+```{r}
+#write.csv(annotatedfullAS, "annotatedmelAS.csv")
+```
+
+```{r}
+write.csv(annotatedfullSS, "annotatedmelSS.csv")
+
+```
