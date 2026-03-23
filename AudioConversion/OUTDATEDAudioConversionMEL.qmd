@@ -16,62 +16,7 @@ library(dplyr)
 library(readxl)
 ```
 
-```{r}
-source("AudioConversionFunction.R")
 
-```
-
-```{r}
-mel_observation_dataframe = function(wav_file_path, 
-                                     annotation_file_path,
-                                     output_file_name,
-                                     start_time = 0,
-                                     end_time = 1,
-                                     step_time = 0.1,
-                                     overlap_time = 0.05,
-                                     num_ceps = 12
-                                     ){
-
-  timesteps = melcoeffs(wave_file = wav_file_path,
-            start_time = start_time,
-            end_time = end_time,
-            step_time = step_time,
-            overlap_time = overlap_time,
-            num_ceps = 12)
-  
-  
-  ranges = import_annotations(annotation_file_path)
-  
-  
-  overlapstart = lapply(timesteps$Time_Start, check_in_ranges, ranges = ranges, 
-                        timesteplength = step_time)
-  
-  annotatedfull = creating_observation_dataframe(overlaps = overlapstart,
-                                                 timesteps = timesteps)
-  
-  
-  annotatedfull = add_instances(annotatedfull)
-  
-  write.csv(annotatedfull, here::here(output_file_name))
-  
-  return(annotatedfull)
-  
-
-}
-
-
-
-test = mel_observation_dataframe(wav_file_path = here::here("TrainingData", "AW", "671658014.180928183606-AW.wav"),
-            annotation_file_path = here::here("TrainingData", "AW", "AWhb.xlsx"),
-            output_file_name = "testing.csv",
-            start_time = 0,
-            end_time = 1,
-            step_time = 0.1,
-            overlap_time = 0.05,
-            num_ceps = 12)
-
-
-```
 
 
 
