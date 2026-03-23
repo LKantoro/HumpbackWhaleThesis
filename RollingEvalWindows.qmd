@@ -6,8 +6,7 @@ editor: source
 
 
 
-This file takes in an object of predictions, creates discrete(?) windows 
-to create a more accurate prediction data set.
+## This file takes in an object of predictions, creates discrete(?) windows to create a more accurate prediction data set.
 
 
 ## Loading Libraries

@@ -10,6 +10,17 @@ editor: source
 
 The context window length, corresponds to a 3.9124-s long spectrogram image. A context window of 3.9124-s length is large enough to contain an entire unit but not large enough to contain two units (on average).
 
+## Sourcing
+
+
+```{r}
+source(here("CreatingObservations.R"))
+source(here("CreatingEvaluationWindows.R"))
+
+```
+
+
+
 ## Loading Libraries
 
 ```{r}
@@ -39,132 +50,14 @@ set.seed(745)
 annotatedMelAW = read.csv(here::here("annotatedmelAWoverlap.csv"))
 # first 30 minutes is in this data set
 
-#annotatedMelAW %>% arrange(desc(Time_End))
+# annotatedMelAW %>% arrange(desc(Time_End))
 ```
-
-
-
-
-
-
-## Creating Empty Data Frame
-
-
-```{r}
-
-#numcep is the number of mel coefficients used
-#num_time_steps is the number of time steps recorded in an observation
-
-#create_observations takes in the above parameters,
-  #outputs a data frame with num_time_steps*numcep columns, 
-  #and 'Time_Start', 'Time_End' and Humpback (0/1) columns
-
-create_observations = function(numcep, num_time_steps){
-  #testdf = data.frame(nrow = num_time_steps*numcep)
-  #print(testdf)
-  colnamelist = list()
-  for (i in 1:numcep){
-    for (j in 1:num_time_steps){
-      #print(i)
-      #print(j)
-      #testdf = cbind(testdf, paste0("V1_",i))
-      colnamelist = append(colnamelist, paste0("V", i, "_", j))
-    }
-  }
-  #adding Time_Start and Time_End variables to end of each row
-  colnamelist = append(colnamelist, "Time_Start")
-  colnamelist = append(colnamelist, "Time_End")
-  colnamelist = append(colnamelist, "Humpback")
-
-
-  dummydf = data.frame(matrix(nrow = 1, ncol = num_time_steps*numcep + 3))
-  
-  colnames(dummydf) = colnamelist
-  
-  
-  
-  
-  
-  return(dummydf)
-  
-}
-#emptydf = create_observations(numcep = 8, num_time_steps = 40)
-
-#emptydf
-```
-
 
 
 ## Creating Observations
 
 
 ```{r}
-
-#function for specifically overlapped time steps (0.5 second increases, 0.5 second overlap)
-
-
-# dummydf is the empty df created in the above 'create_observations' function
-# whaledf is the full mel coefficient data frame
-# num_time_steps is the number of time steps 
-# numcep is the number of cepstrum coefficients
-
-
-
-add_observations = function(whaledf, num_time_steps, numcep){
-  
-  
-  dummydf = create_observations(numcep, num_time_steps)
-
-  #getting initial times
-  #filtering on initial times
-  initials = whaledf %>% pull(Time_Start)
-  
-  # for each initial row in which an observation is desired
-  for (i in initials){
-    
-    
-    
-    #i represents the start time of an initial observation (context window)
-    
-    #create observation by looping over the number of time steps
-    
-    #if statement to avoid including observations at end of the file
-    if (nrow(whaledf %>% 
-             filter(i <= Time_Start & Time_Start < i + 0.05*num_time_steps)) == 
-        num_time_steps)
-      {
-        # determining whether the window has any whale call
-        if (nrow(whaledf %>% 
-             filter(i <= Time_Start & Time_Start < i + 0.05*num_time_steps) %>%
-             filter(Humpback == 1)) >= 1){
-          
-        whale = 1
-        } else {
-        whale = 0
-        }
-   
-          
-      coeffs = whaledf %>% 
-        filter(i <= Time_Start & Time_Start < i + 0.05*num_time_steps) %>% 
-        dplyr::select(V1:paste0("V", numcep))
-    
-    
-      #c(as.matrix()) creates a vector out of a data.frame, going down columns
-      dummydf = rbind(dummydf, 
-                      c(as.matrix(coeffs), i, i + 0.05*num_time_steps, whale))
-      }
-    
-    
-    #need to create conditionals for end of file
-  }
-  return(dummydf)
-}
-
-
-#positives = 
-  
-  
-
 
 
 table((add_observations(whaledf = annotatedMelAW %>% 
@@ -305,23 +198,7 @@ testingpredictions = testingdata %>%
 
 
 ```{r}
-creating_eval_windows = function(predictions, length){
-  
-  initial = predictions %>% pull(Time_Start) %>% first()
-  final = predictions %>% pull(Time_Start) %>% last()
-  initials = c()
-  starttime = initial
-  
-  while (starttime + length <= final){
-  
-    newtime = starttime
-    initials = c(initials, newtime)
-    starttime = starttime + length
-    
-  }
-  return(initials)
-  
-}
+
 
 creating_eval_windows(testingpredictions, 1)
 
@@ -332,66 +209,6 @@ creating_eval_windows(testingpredictions, 1)
 
 ```{r}
 
-evalwindows = function(predictions, length, threshold){
-  
-  initials = creating_eval_windows(predictions, length)
-  
-  init_matrix = matrix(nrow = 0, ncol = 5)
-  
-  #create data frame with state time, end time, proportion, and 0/1 based on prop vs threshold, and truth
-
-  results = data.frame(init_matrix)
-  
-  for (i in initials){
-    #print(predictions %>% filter(i <= Time_Start & Time_Start < i + length))
-    
-    # if enough windows predicted a whale in this evaluation window
-    if (predictions %>% filter(i <= Time_Start & Time_Start < i + length) %>% 
-        summarise(proportion = sum(preds == 1) / n()) %>% pull(proportion) > threshold){
-      
-
-      row = c("Time_Start" = i, 
-              "Time_End" = i + length, 
-              "proportion" = predictions %>% filter(i <= Time_Start & Time_Start < i + length) %>% 
-        summarise(proportion = sum(preds == 1) / n()) %>% pull(proportion), 
-              "prediction" = 1,
-              "truth" = as.numeric(nrow(testingpredictions %>% filter(i <= Time_Start & Time_Start < i + length) %>% 
-  filter(Humpback == 1)) >= 1))
-    
-    # if not enough windows predicted a whale in this evaluation window
-  
-    } else{
-      row = c("Time_Start" = i, 
-        "Time_End" = i + length, 
-        "proprotion" = predictions %>% filter(i <= Time_Start & Time_Start < i + length) %>% 
-        summarise(proportion = sum(preds == 1) / n()) %>% pull(proportion), 
-        "prediction" = 0,
-        "truth" = as.numeric(nrow(testingpredictions %>% filter(i <= Time_Start & Time_Start < i + length) %>% 
-  filter(Humpback == 1)) >= 1))
-      
-    }
-    #print(row)
-    results = rbind(results, row)
-  }
-  colnames(results) = c("Time_Start", "Time_End", "proportion", "prediction", "truth")
-
-  return(results)
-  
-
-  
-  
-  # end observation at start + length
-  # if number of time steps that predicted a whale is >= proportion
-    # make this observation a 1
-    # else: make it 0
-  # start new observation at next time step
-  # repeat until end of data file
-  
-  
-  
-  
-  
-}
 
 
 evalwindows(testingpredictions, 1, 0.5)
