@@ -6,20 +6,24 @@ editor: source
 
 ```{r}
 library(monitoR)
+library(here)
+library(tuneR)
 
-apple = 'C:/Users/lucas/Desktop/Thesis/Code/TrainingData/671658014.180928183606-AW.wav'
+#apple = 'C:/Users/lucas/Desktop/Thesis/Code/TrainingData/671658014.180928183606-AW.wav'
 
-viewSpec(apple, frq.lim = c(0, 0.5), page.length = 10, units = 'seconds')
+sound = here("TrainingData", "AW","671658014.180928183606-AW.wav")
+
+viewSpec(sound, frq.lim = c(0, 0.5), page.length = 10, units = 'seconds')
 ```
 
 ```{r}
-wct1 <- makeCorTemplate(apple, 
-                        name = apple,
+wct1 <- makeCorTemplate(sound, 
+                        name = sound,
                         t.lim=c(1.32, 4.32),
                         frq.lim=c(0, 1))
 
-wct1 <- makeCorTemplate(apple, 
-                        name = apple,
+wct1 <- makeCorTemplate(sound, 
+                        name = sound,
                         t.lim=c(32, 35),
                         frq.lim=c(0, 1))
 ```
@@ -27,9 +31,11 @@ wct1 <- makeCorTemplate(apple,
 ## Reading in Wav File and Trimming It
 
 ```{r}
-library(tuneR)
+
 # Read a WAV file
-audio_data <- readWave('C:/Users/lucas/Desktop/Thesis/Code/TrainingData/671658014.180928183606-AW.wav', from = 0, to = 30, units = "minutes")
+audio_data <- readWave(here("TrainingData", "AW",
+                            "671658014.180928183606-AW.wav"), 
+                       from = 0, to = 30, units = "minutes")
 
 # Perform operations like trimming, filtering, or combining audio segments
 # For example, trimming the first 5 seconds
