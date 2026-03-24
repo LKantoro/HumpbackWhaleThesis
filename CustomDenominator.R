@@ -1,18 +1,4 @@
 
-# Create a custom denominator that counts a success based on the number of whale calls found, instead of the number of windows with a whale call.
-
-
-#If at any point in the whale call, there is a prediction, count that as a success, if there are no predictions on a whale call, count that as a failure.
-
-#How to judge incorrect predictions using this metric?
-  
-  
-# take all true annotations
-# round both ends to nearest 0.05
-# determine the percentage of positive predictions out of segments that overlap it
-# record that metric and compare it to a threshold
-
-
 
 # input contains: (ldapredictions, manualannotations)
 # time_start
@@ -22,61 +8,66 @@
 # length of rolling evaluation windows
 
 
-manual_annotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
-
-manual_annotations = manual_annotations %>% rename(Begin_Time = 'Begin Time (s)',
-                                 End_Time = 'End Time (s)')
 
 
-custom_denominator = function(){
+# manual_annotations: the observed manual annotation file
+# predictions: a file of predictions on each time segment
+# pred_start_time: the time in the annotated file when predictions begin
+# pred_end_time: the time in the annotated file when predictions begin
+# threshold: the lower limit proportion of encapsulating windows that predict 1 
+# for the overall prediction to be 1
+
+
+custom_denominator = function(manual_annotations, predictions, 
+                              pred_start_time, pred_end_time, threshold){
   # pseudocode:
   outputdf = data.frame()
+  
+  # formatting and filtering annotation dataset for easier coding
+  manual_annotations = manual_annotations %>% 
+    rename(Begin_Time = 'Begin Time (s)', End_Time = 'End Time (s)') %>%
+    filter(Begin_Time >= pred_start_time & End_Time <= pred_end_time)
+
   # for each annotated range
   for (i in c(1:nrow(manual_annotations))){
-    #print(i)
     
+    # taking the start and end time of each annotated whale
     start_time_annotated = manual_annotations$Begin_Time[i]
     end_time_annotated = manual_annotations$End_Time[i]
+
     
-    
-    proportion = ldapredictions %>% filter(Time_Start < end_time_annotated &
+    # if beginning of 0.1 second window is less than end of annotated window
+    # and if end of 0.1 window is greater than beginning of annotated window
+    # calculate the proportion of 1s
+    proportion = predictions %>% filter(Time_Start < end_time_annotated &
                                 start_time_annotated < Time_End) %>% 
       summarise(proportion = sum(preds == 1) / n()) %>% pull(proportion)
     
-    prediction = as.numeric(proportion > threshold)
+    # predicting a whale if the proportion is greater than the threshold
+    prediction = as.numeric(proportion >= threshold)
     
-    row = c("Time_Start" = i, 
-            "Time_End" = i + length, 
+    row = c("Time_Start" = start_time_annotated, 
+            "Time_End" = end_time_annotated, 
             "proportion" = proportion, 
             "prediction" = prediction)
+    
+    # adding a row with start_time, end_time, and proportion to output
+    outputdf = rbind(outputdf, row)
   }
   colnames(outputdf) = c("Time_Start", "Time_End", "proportion", "prediction")
   
+  # output 
+  return(outputdf)
 }
 
-  # if beginning of 0.1 second window is less than end of annotated window
-  # and if end of 0.1 window is greater than beginning of annotated window
-    # investigate whether prediction is 0 or 1
-  # calculate the proportion of 1s
-  # add row with start_time, end_time, and proportion to output
-# output 
+
+  
+  
 
 
 
 
 
-
-annotatedAW = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
-
-
-
-annotatedAW = annotatedAW %>% dplyr::rename("begin_time" = "Begin Time (s)",
-                                            "end_time" = "End Time (s)") %>%
-  mutate(begin_time = round_any(begin_time, accuracy = 0.05, f = round),
-         end_time = round_any(end_time, accuracy = 0.05, f = round))
-
-
-annotatedAW
 
 
 
