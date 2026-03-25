@@ -1,0 +1,231 @@
+---
+title: "Random Forest Model"
+format: html
+editor: source
+---
+
+
+
+## Loading Libraries
+
+```{r}
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(ranger)
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(discrim)
+```
+
+## Sourcing
+
+```{r}
+source(here::here("ContextWindows", "ContextWindowFunctions.R"))
+source(here::here("EvaluationWindowFunctions.R"))
+
+```
+
+
+
+## Setting Seed for Consistent Randomization
+
+```{r}
+set.seed(288)
+```
+
+
+## Loading In Data
+
+```{r}
+#annotatedMelAW = read.csv(here::here("annotatedmelAWoverlap.csv"))
+
+data = read.csv(here::here("60minutes.csv"))
+
+#annotatedMelAW = read.csv(here::here("annotatedmelAWlowerhzoverlap.csv"))
+# first 30 minutes is in this data set
+
+#annotatedMelAW %>% arrange(desc(Time_End))
+```
+
+
+
+
+### Creating Balanced Training Data
+
+```{r}
+# start and end time are in seconds
+
+trainingdata = add_observations(whaledf = data,
+                                start_time = 0,
+                                end_time = 120,
+                                num_time_steps=40, 
+                                numcep = 12,
+                                step_size = 0.05)
+
+table(trainingdata$Humpback)
+
+numnegatives = nrow(trainingdata %>% filter(Humpback == 0))
+
+
+# taking row numbers of positive observations
+
+trainingpositives = trainingdata %>% filter(Humpback == 1)
+
+
+sample(c(1:nrow(trainingpositives)), size = numnegatives)
+
+trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
+
+
+trainingdatabalanced = rbind(trainingdata %>% filter(Humpback == 0),
+                              trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
+                                  )
+
+table(trainingdatabalanced$Humpback)
+```
+
+### Creating Testing Data
+
+
+```{r}
+testingdata = add_observations(whaledf = data,
+                                start_time = 300,
+                                end_time = 360,
+                                num_time_steps=40, 
+                                numcep = 12,
+                                step_size = 0.05)
+
+table(testingdata$Humpback)
+
+```
+
+### Creating Cross-Validation Folds
+
+```{r}
+training_cvs = vfold_cv(trainingdatabalanced, v = 10)
+
+```
+
+
+
+
+
+## Random Forest
+
+### Creating RF Model
+
+```{r}
+
+#creating model
+rfmod_1 <- rand_forest(trees = 1000) %>%
+  set_engine("ranger") %>%               
+  set_mode("classification")            
+
+#creating recipe
+rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdatabalanced) %>%
+  step_rm(Time_Start, Time_End) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_factor_predictors())
+
+
+#creating workflow
+rfworkflow_1 <- workflow() %>%
+  add_model(rfmod_1) %>%
+  add_recipe(rfrecipe_1)
+
+
+
+#fitting model
+rffit_1 <- rfworkflow_1 %>% fit(data = trainingdatabalanced)
+
+
+#confusion matrix
+trainingdatabalanced %>%
+  mutate(
+    rfpreds = predict(knnfit_1, trainingdatabalanced)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = rfpreds)
+```
+
+
+
+### Cross Validating
+
+```{r}
+trainingdatabalanced %>%
+  mutate(
+    rfpreds = predict(rffit_1, trainingdatabalanced)$.pred_class
+  ) %>% dplyr::select(Humpback, rfpreds, Time_Start, Time_End)
+
+
+#ldaworkflow_1 %>% fit_resamples(training_cvs)
+
+
+rffitcv_1 = rfworkflow_1 %>% fit_resamples(training_cvs,
+                metrics = metric_set(accuracy, roc_auc, precision, specificity, recall)
+                )
+collect_metrics(knnfitcv_1)
+
+
+```
+
+
+
+
+
+### Predicting on Testing Data
+
+```{r}
+
+rfpredictions = testingdata %>%
+  mutate(
+    preds = predict(rffit_1, testingdata)$.pred_class
+  ) %>% dplyr::select(Time_Start, Time_End, preds, Humpback)
+
+
+rfwindowpredictions = testing_eval_windows(rfpredictions, length = 1, threshold = 0.25)
+
+rfwindowpredictions %>%
+  conf_mat(truth = Humpback,
+           estimate = prediction)
+
+rfwindowpredictions %>% 
+  recall(truth = Humpback, estimate = prediction, event_level = 'second')
+```
+
+
+### Create Output For Raven Visualization
+
+
+```{r}
+rftestingoutput = rfwindowpredictions %>% 
+  dplyr::select(Time_Start, Time_End, Humpback, prediction)
+
+
+
+
+#creating dummy low and high frequencies for now
+
+rftestingoutput = rftestingoutput %>% mutate(low = rep(0, times = nrow(rftestingoutput)),
+                         high = rep(1000, times = nrow(rftestingoutput)))
+
+
+
+rftestingoutput = rftestingoutput %>% filter(prediction == 1) %>% 
+  rename("Begin Time (s)" = Time_Start, "End Time (s)" = Time_End, 
+         "Low Freq (Hz)" = low, "High Freq (Hz)" = high) %>% 
+  dplyr::select(c("Begin Time (s)", "End Time (s)", 
+                  "Low Freq (Hz)", "High Freq (Hz)"))
+
+
+
+#create output 
+write.table(rftestingoutput, "rfevalwindowpreds.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+```
+

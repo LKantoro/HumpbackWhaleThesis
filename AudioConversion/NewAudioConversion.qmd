@@ -57,13 +57,21 @@ mel_observation_dataframe = function(wav_file_path,
 
 }
 
+# function with: 
+# wave file path, 
+# annotation file path
+# start time (minutes)
+# end time (minutes)
+# step time (seconds)
+# overlap time (seconds) 
+# number of mel coefficients (default 12)
 
-
-test = mel_observation_dataframe(wav_file_path = here::here("TrainingData", "AW", "671658014.180928183606-AW.wav"),
+test = mel_observation_dataframe(
+  wav_file_path = here::here("TrainingData", "AW", "671658014.180928183606-AW.wav"),
             annotation_file_path = here::here("TrainingData", "AW", "AWhb.xlsx"),
-            output_file_name = "testing.csv",
+            output_file_name = "60minutes.csv",
             start_time = 0,
-            end_time = 1,
+            end_time = 60,
             step_time = 0.1,
             overlap_time = 0.05,
             num_ceps = 12)

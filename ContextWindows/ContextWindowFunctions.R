@@ -42,6 +42,9 @@ initializing_observations = function(numcep, num_time_steps){
 # whaledf is the full mel coefficient data frame
 # num_time_steps is the number of time steps 
 # numcep is the number of cepstrum coefficients
+# start_time (seconds)
+# end_time (seconds)
+# step size is the number of steps in a context window
 
 
 
