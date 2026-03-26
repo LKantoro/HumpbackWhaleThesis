@@ -69,12 +69,12 @@ mel_observation_dataframe = function(wav_file_path,
 test = mel_observation_dataframe(
   wav_file_path = here::here("TrainingData", "AW", "671658014.180928183606-AW.wav"),
             annotation_file_path = here::here("TrainingData", "AW", "AWhb.xlsx"),
-            output_file_name = "60minutes.csv",
-            start_time = 0,
-            end_time = 60,
+            output_file_name = "120toendminutes.csv",
+            start_time = 120,
+            end_time = 179.95,
             step_time = 0.1,
             overlap_time = 0.05,
             num_ceps = 12)
 
-
+# sound wave file is ~ 10797.839 seconds long (179.964)
 ```

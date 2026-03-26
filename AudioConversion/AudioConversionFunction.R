@@ -25,8 +25,8 @@ melcoeffs = function(wave_file, start_time, end_time, step_time, overlap_time,
   # Adding Time Steps to Matrix
   #17999 is for 30 minutes
   timesteps = as.data.frame(cbind(melcoeffs, 
-                                    "Time_Start" = seq(from = start_time, to = end_time * 60 - step_time - overlap_time, by = overlap_time),
-                                    "Time_End" = seq(from = start_time + step_time, to = end_time * 60 - overlap_time, by = overlap_time)))
+                                    "Time_Start" = seq(from = start_time * 60, to = end_time * 60 - step_time - overlap_time, by = overlap_time),
+                                    "Time_End" = seq(from = start_time * 60  + step_time, to = end_time * 60 - overlap_time, by = overlap_time)))
   return(timesteps)
 }
 

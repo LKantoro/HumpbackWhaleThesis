@@ -27,7 +27,7 @@ library(discrim)
 ```{r}
 source(here::here("ContextWindows", "ContextWindowFunctions.R"))
 source(here::here("EvaluationWindowFunctions.R"))
-
+source(here::here("CustomDenominator.R"))
 ```
 
 
@@ -35,7 +35,7 @@ source(here::here("EvaluationWindowFunctions.R"))
 ## Setting Seed for Consistent Randomization
 
 ```{r}
-set.seed(288)
+set.seed(656)
 ```
 
 
@@ -94,8 +94,8 @@ table(trainingdatabalanced$Humpback)
 
 ```{r}
 testingdata = add_observations(whaledf = data,
-                                start_time = 300,
-                                end_time = 360,
+                                start_time = 5580,
+                                end_time = 5800,
                                 num_time_steps=40, 
                                 numcep = 12,
                                 step_size = 0.05)
@@ -122,7 +122,7 @@ training_cvs = vfold_cv(trainingdatabalanced, v = 10)
 ```{r}
 
 #creating model
-rfmod_1 <- rand_forest(trees = 1000) %>%
+rfmod_1 <- rand_forest(mtry = 22) %>%
   set_engine("ranger") %>%               
   set_mode("classification")            
 
@@ -147,7 +147,7 @@ rffit_1 <- rfworkflow_1 %>% fit(data = trainingdatabalanced)
 #confusion matrix
 trainingdatabalanced %>%
   mutate(
-    rfpreds = predict(knnfit_1, trainingdatabalanced)$.pred_class
+    rfpreds = predict(rffit_1, trainingdatabalanced)$.pred_class
   ) %>%
   conf_mat(truth = Humpback,
            estimate = rfpreds)
@@ -164,13 +164,11 @@ trainingdatabalanced %>%
   ) %>% dplyr::select(Humpback, rfpreds, Time_Start, Time_End)
 
 
-#ldaworkflow_1 %>% fit_resamples(training_cvs)
-
 
 rffitcv_1 = rfworkflow_1 %>% fit_resamples(training_cvs,
                 metrics = metric_set(accuracy, roc_auc, precision, specificity, recall)
                 )
-collect_metrics(knnfitcv_1)
+collect_metrics(rffitcv_1)
 
 
 ```
@@ -179,7 +177,7 @@ collect_metrics(knnfitcv_1)
 
 
 
-### Predicting on Testing Data
+### Predicting on Testing Data Using Evaluation Windows
 
 ```{r}
 
@@ -189,7 +187,9 @@ rfpredictions = testingdata %>%
   ) %>% dplyr::select(Time_Start, Time_End, preds, Humpback)
 
 
-rfwindowpredictions = testing_eval_windows(rfpredictions, length = 1, threshold = 0.25)
+rfwindowpredictions = testing_eval_windows(rfpredictions, length = 0.1, threshold = 0.25)
+
+rfwindowpredictions
 
 rfwindowpredictions %>%
   conf_mat(truth = Humpback,
@@ -198,6 +198,20 @@ rfwindowpredictions %>%
 rfwindowpredictions %>% 
   recall(truth = Humpback, estimate = prediction, event_level = 'second')
 ```
+
+
+### Predicting on Individual Whale Calls
+
+
+```{r}
+manual_annotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
+
+custom_denominator(manual_annotations, rfpredictions,
+                   pred_start_time = min(rfpredictions$Time_Start), 
+                   pred_end_time = max(rfpredictions$Time_End), 
+                   threshold = 0.5)
+```
+
 
 
 ### Create Output For Raven Visualization
@@ -213,7 +227,7 @@ rftestingoutput = rfwindowpredictions %>%
 #creating dummy low and high frequencies for now
 
 rftestingoutput = rftestingoutput %>% mutate(low = rep(0, times = nrow(rftestingoutput)),
-                         high = rep(1000, times = nrow(rftestingoutput)))
+                         high = rep(2000, times = nrow(rftestingoutput)))
 
 
 

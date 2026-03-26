@@ -1,5 +1,5 @@
 ---
-title: "Rolling Eval Windows"
+title: "LDA Model"
 format: html
 editor: source
 ---
@@ -30,7 +30,7 @@ library(discrim)
 ```{r}
 source(here::here("ContextWindows", "ContextWindowFunctions.R"))
 source(here::here("EvaluationWindowFunctions.R"))
-
+source(here::here("CustomDenominator.R"))
 ```
 
 
@@ -172,7 +172,7 @@ collect_metrics(ldafitcv_1)
 ```
 
 
-### Predicting on Testing Data
+### Predicting on Testing Data Using Evaluation Windows
 
 ```{r}
 
@@ -184,12 +184,7 @@ ldapredictions = testingdata %>%
 
 ldawindowpredictions = testing_eval_windows(ldapredictions, length = 1, threshold = 0.3)
 
-source(here::here("CustomDenominator.R"))
 
-manual_annotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
-
-custom_denominator(manual_annotations, ldapredictions,
-                   pred_start_time = 30, pred_end_time = 58, threshold = 0.5)
 
 ldawindowpredictions %>%
   conf_mat(truth = Humpback,
@@ -198,6 +193,21 @@ ldawindowpredictions %>%
 ldawindowpredictions %>% 
   recall(truth = Humpback, estimate = prediction, event_level = 'second')
 ```
+
+### Predicting on Individual Whale Calls
+
+
+```{r}
+manual_annotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
+
+custom_denominator(manual_annotations, ldapredictions,
+                   pred_start_time = min(ldapredictions$Time_Start), 
+                   pred_end_time = max(ldapredictions$Time_End), 
+                   threshold = 0.5)
+```
+
+
+
 
 ### Create Output For Raven Visualization
 
