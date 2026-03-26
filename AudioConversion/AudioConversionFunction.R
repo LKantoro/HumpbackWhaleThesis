@@ -8,7 +8,7 @@
 
 
 melcoeffs = function(wave_file, start_time, end_time, step_time, overlap_time,
-                     num_ceps = 12){
+                     num_ceps){
   
   # reading in wave file
   audio_data = readWave(wave_file, from = start_time, to = end_time, 

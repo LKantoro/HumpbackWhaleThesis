@@ -54,14 +54,12 @@ add_observations = function(whaledf, start_time, end_time,
   
   dummydf = initializing_observations(numcep, num_time_steps)
   
+  # subsetting on only the observed range
   whaledf = whaledf %>% 
     filter(start_time <= Time_Start & Time_Start < end_time)
   
-  
-  #getting initial times
-  #filtering on initial times
+  # filtering on initial times
   initials = whaledf %>% pull(Time_Start)
-  
   # for each initial row in which an observation is desired
   for (i in initials){
     
@@ -72,6 +70,8 @@ add_observations = function(whaledf, start_time, end_time,
     #create observation by looping over the number of time steps
     
     #if statement to avoid including observations at end of the file
+    
+    
     if (nrow(whaledf %>% 
              filter(i <= Time_Start & Time_Start < i + step_size*num_time_steps)) == 
         num_time_steps)
