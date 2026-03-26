@@ -1,8 +1,10 @@
 ---
-title: "Random Forest Model"
+title: "Gray Whale Method (Random Forest)"
 format: html
 editor: source
 ---
+
+
 
 
 
@@ -31,22 +33,21 @@ source(here::here("CustomDenominator.R"))
 ```
 
 
-
 ## Setting Seed for Consistent Randomization
 
 ```{r}
-set.seed(656)
+set.seed(897)
 ```
 
 
 ## Loading In Data
 
 ```{r}
-#annotatedMelAW = read.csv(here::here("annotatedmelAWoverlap.csv"))
+data = read.csv(here::here("GrayWhaleMethod", "graywhalemethod.csv"))
 
 # data = read.csv(here::here("60minutes.csv"))
 
-data = read.csv(here::here("FullMelAW.csv"))
+# data = read.csv(here::here("FullMelAW.csv"))
 
 #annotatedMelAW = read.csv(here::here("annotatedmelAWlowerhzoverlap.csv"))
 # first 30 minutes is in this data set
@@ -57,50 +58,24 @@ data = read.csv(here::here("FullMelAW.csv"))
 
 
 
+
 ### Creating Balanced Training Data
 
 ```{r}
-# start and end time are in seconds
 
-trainingdata = add_observations(whaledf = data,
-                                start_time = 0,
-                                end_time = 700,
-                                num_time_steps=20, 
-                                numcep = 12,
-                                step_size = 0.05)
+trainingdata = data %>% filter(Time_Start <= 500) %>% 
+  mutate(Humpback = as.factor(Humpback))
 
 table(trainingdata$Humpback)
 
-numnegatives = nrow(trainingdata %>% filter(Humpback == 0))
-
-
-# taking row numbers of positive observations
-
-trainingpositives = trainingdata %>% filter(Humpback == 1)
-
-
-sample(c(1:nrow(trainingpositives)), size = numnegatives)
-
-trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
-
-
-trainingdatabalanced = rbind(trainingdata %>% filter(Humpback == 0),
-                              trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
-                                  )
-
-table(trainingdatabalanced$Humpback)
 ```
 
 ### Creating Testing Data
 
 
 ```{r}
-testingdata = add_observations(whaledf = data,
-                                start_time = 2000,
-                                end_time = 2500,
-                                num_time_steps=20, 
-                                numcep = 12,
-                                step_size = 0.05)
+testingdata = data %>% filter(Time_Start < 1000 & Time_Start >= 500.1) %>% 
+  mutate(Humpback = as.factor(Humpback))
 
 table(testingdata$Humpback)
 
@@ -109,7 +84,7 @@ table(testingdata$Humpback)
 ### Creating Cross-Validation Folds
 
 ```{r}
-training_cvs = vfold_cv(trainingdatabalanced, v = 10)
+training_cvs = vfold_cv(trainingdata, v = 10)
 
 ```
 
@@ -125,14 +100,14 @@ training_cvs = vfold_cv(trainingdatabalanced, v = 10)
 library(randomForest)
 
 #creating model
-rfmod_1 <- rand_forest(min_n = 100, trees = 2000,
-                       mtry = floor(sqrt(ncol(trainingdatabalanced) - 3))) %>%
+rfmod_1 <- rand_forest(min_n = 100, trees = 1000,
+                       mtry = floor(sqrt(ncol(trainingdata) - 3))) %>%
   set_engine("ranger") %>%               
   set_mode("classification")            
 
 #creating recipe
-rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdatabalanced) %>%
-  step_rm(Time_Start, Time_End) %>%
+rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdata) %>%
+  step_rm(Time_Start, Time_End, X) %>%
   step_normalize(all_numeric_predictors()) %>%
   step_dummy(all_factor_predictors())
 
@@ -145,7 +120,7 @@ rfworkflow_1 <- workflow() %>%
 
 
 #fitting model
-rffit_1 <- rfworkflow_1 %>% fit(data = trainingdatabalanced)
+rffit_1 <- rfworkflow_1 %>% fit(data = trainingdata)
 
 
 rffit_1 |>
@@ -159,10 +134,10 @@ print(rfmod_1)
 ### Cross Validating
 
 ```{r}
-trainingdatabalanced %>%
+trainingdata %>%
   mutate(
-    rfpreds = predict(rffit_1, trainingdatabalanced)$.pred_class
-  ) %>% dplyr::select(Humpback, rfpreds, Time_Start, Time_End)
+    rfpreds = predict(rffit_1, trainingdata)$.pred_class
+  ) %>% dplyr::select(Time_Start, Time_End, rfpreds, Humpback)
 
 
 
@@ -187,6 +162,9 @@ rfpredictions = testingdata %>%
     preds = predict(rffit_1, testingdata)$.pred_class
   ) %>% dplyr::select(Time_Start, Time_End, preds, Humpback)
 
+head(rfpredictions, 30)
+
+table(rfpredictions$preds)
 
 rfwindowpredictions = testing_eval_windows(rfpredictions, length = 1, threshold = 0.5)
 
@@ -210,7 +188,7 @@ manual_annotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
 custom_denominator(manual_annotations, rfpredictions,
                    pred_start_time = min(rfpredictions$Time_Start), 
                    pred_end_time = max(rfpredictions$Time_End), 
-                   threshold = 0.5)
+                   threshold = 0.55)
 ```
 
 
@@ -239,7 +217,8 @@ raven_output = function(testingoutput, start, end){
   
   
   #create output 
-  write.table(rftestingoutput, paste0("rfevalwindowpreds", start, end, ".txt"), 
+  write.table(rftestingoutput, 
+              paste0("graywhalemethodrfevalwindowpreds", start, end, ".txt"), 
               sep = "\t", row.names = FALSE, quote = FALSE)
 }
 
@@ -248,7 +227,6 @@ raven_output(testingoutput = rftestingoutput,
              end = max(rfwindowpredictions$Time_End))
 
 ```
-
 
 
 
