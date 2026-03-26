@@ -44,7 +44,9 @@ set.seed(656)
 ```{r}
 #annotatedMelAW = read.csv(here::here("annotatedmelAWoverlap.csv"))
 
-data = read.csv(here::here("60minutes.csv"))
+# data = read.csv(here::here("60minutes.csv"))
+
+data = read.csv(here::here("FullMelAW.csv"))
 
 #annotatedMelAW = read.csv(here::here("annotatedmelAWlowerhzoverlap.csv"))
 # first 30 minutes is in this data set
@@ -62,8 +64,8 @@ data = read.csv(here::here("60minutes.csv"))
 
 trainingdata = add_observations(whaledf = data,
                                 start_time = 0,
-                                end_time = 120,
-                                num_time_steps=40, 
+                                end_time = 700,
+                                num_time_steps=20, 
                                 numcep = 12,
                                 step_size = 0.05)
 
@@ -94,9 +96,9 @@ table(trainingdatabalanced$Humpback)
 
 ```{r}
 testingdata = add_observations(whaledf = data,
-                                start_time = 5580,
-                                end_time = 5800,
-                                num_time_steps=40, 
+                                start_time = 2000,
+                                end_time = 2500,
+                                num_time_steps=20, 
                                 numcep = 12,
                                 step_size = 0.05)
 
@@ -120,9 +122,11 @@ training_cvs = vfold_cv(trainingdatabalanced, v = 10)
 ### Creating RF Model
 
 ```{r}
+library(randomForest)
 
 #creating model
-rfmod_1 <- rand_forest(mtry = 22) %>%
+rfmod_1 <- rand_forest(min_n = 100, trees = 2000,
+                       mtry = floor(sqrt(ncol(trainingdatabalanced) - 3))) %>%
   set_engine("ranger") %>%               
   set_mode("classification")            
 
@@ -144,13 +148,10 @@ rfworkflow_1 <- workflow() %>%
 rffit_1 <- rfworkflow_1 %>% fit(data = trainingdatabalanced)
 
 
-#confusion matrix
-trainingdatabalanced %>%
-  mutate(
-    rfpreds = predict(rffit_1, trainingdatabalanced)$.pred_class
-  ) %>%
-  conf_mat(truth = Humpback,
-           estimate = rfpreds)
+rffit_1 |>
+  extract_fit_engine()
+
+print(rfmod_1)
 ```
 
 
@@ -187,7 +188,7 @@ rfpredictions = testingdata %>%
   ) %>% dplyr::select(Time_Start, Time_End, preds, Humpback)
 
 
-rfwindowpredictions = testing_eval_windows(rfpredictions, length = 0.1, threshold = 0.25)
+rfwindowpredictions = testing_eval_windows(rfpredictions, length = 1, threshold = 0.5)
 
 rfwindowpredictions
 
@@ -216,30 +217,49 @@ custom_denominator(manual_annotations, rfpredictions,
 
 ### Create Output For Raven Visualization
 
+```{r}
+
+raven_output = function(testingoutput, start, end){
+
+  rftestingoutput = rfwindowpredictions %>% 
+    dplyr::select(Time_Start, Time_End, Humpback, prediction)
+  
+  
+  #creating dummy low and high frequencies
+  
+  rftestingoutput = rftestingoutput %>% mutate(low = rep(0, times = nrow(rftestingoutput)),
+                           high = rep(2000, times = nrow(rftestingoutput)))
+  
+  
+  rftestingoutput = rftestingoutput %>% filter(prediction == 1) %>% 
+    rename("Begin Time (s)" = Time_Start, "End Time (s)" = Time_End, 
+           "Low Freq (Hz)" = low, "High Freq (Hz)" = high) %>% 
+    dplyr::select(c("Begin Time (s)", "End Time (s)", 
+                    "Low Freq (Hz)", "High Freq (Hz)"))
+  
+  
+  #create output 
+  write.table(rftestingoutput, paste0("rfevalwindowpreds", start, end, ".txt"), 
+              sep = "\t", row.names = FALSE, quote = FALSE)
+}
+
+raven_output(testingoutput = rftestingoutput,
+             start = min(rfwindowpredictions$Time_Start),
+             end = max(rfwindowpredictions$Time_End))
+
+```
+
+
 
 ```{r}
-rftestingoutput = rfwindowpredictions %>% 
-  dplyr::select(Time_Start, Time_End, Humpback, prediction)
+test_func = function(input){
+  print(paste0(input, "dflkgjhd"))
+  
+  
+  
+  
+}
 
-
-
-
-#creating dummy low and high frequencies for now
-
-rftestingoutput = rftestingoutput %>% mutate(low = rep(0, times = nrow(rftestingoutput)),
-                         high = rep(2000, times = nrow(rftestingoutput)))
-
-
-
-rftestingoutput = rftestingoutput %>% filter(prediction == 1) %>% 
-  rename("Begin Time (s)" = Time_Start, "End Time (s)" = Time_End, 
-         "Low Freq (Hz)" = low, "High Freq (Hz)" = high) %>% 
-  dplyr::select(c("Begin Time (s)", "End Time (s)", 
-                  "Low Freq (Hz)", "High Freq (Hz)"))
-
-
-
-#create output 
-write.table(rftestingoutput, "rfevalwindowpreds.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+test_func(4598)
 ```
 
