@@ -69,12 +69,12 @@ mel_observation_dataframe = function(wav_file_path,
 test = mel_observation_dataframe(
   wav_file_path = here::here("TrainingData", "AW", "671658014.180928183606-AW.wav"),
             annotation_file_path = here::here("TrainingData", "AW", "AWhb.xlsx"),
-            output_file_name = "graywhalemethodpt3.csv",
-            start_time = 119.9,
-            end_time = 179.9,
+            output_file_name = "annotatedMelAW.csv",
+            start_time = 0,
+            end_time = 60,
             step_time = 0.1,
-            overlap_time = 0.1,
-            num_ceps = 13)
+            overlap_time = 0.05,
+            num_ceps = 12)
 
 # set overlap_time = step_time if no overlap is desired
 
