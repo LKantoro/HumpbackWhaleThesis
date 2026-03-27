@@ -1,0 +1,83 @@
+---
+title: "Random Forest Model Tuning"
+format: html
+editor: source
+---
+
+
+- function for specifying context window length (num_time_steps), aggregation length, and threshold link
+
+- then compare recall, F2, and how many whales are correctly predicted
+
+- start with 2 each, create data frame of all combinations and pass it through the function
+
+
+
+## Loading Libraries
+
+```{r}
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(ranger)
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(discrim)
+```
+
+## Sourcing
+
+```{r}
+source(here::here("ContextWindows", "ContextWindowFunctions.R"))
+source(here::here("EvaluationWindowFunctions.R"))
+source(here::here("CustomDenominator.R"))
+```
+
+
+
+## Setting Seed for Consistent Randomization
+
+```{r}
+set.seed(716)
+```
+
+
+
+
+## Loading In Data
+
+```{r}
+data = read.csv(here::here("annotatedmelAW.csv"))
+
+# data = read.csv(here::here("60minutes.csv"))
+
+# data = read.csv(here::here("FullMelAW.csv"))
+
+#annotatedMelAW = read.csv(here::here("annotatedmelAWlowerhzoverlap.csv"))
+# first 30 minutes is in this data set
+
+#annotatedMelAW %>% arrange(desc(Time_End))
+```
+
+
+## Choosing 
+
+
+## Function
+
+
+```{r}
+trainingdata = add_observations(whaledf = data,
+                                start_time = 0,
+                                end_time = 200,
+                                num_time_steps='specify', 
+                                numcep = 12,
+                                step_size = 0.05)
+```
+
+
+## ...

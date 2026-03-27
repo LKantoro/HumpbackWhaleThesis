@@ -42,11 +42,11 @@ set.seed(656)
 ## Loading In Data
 
 ```{r}
-#annotatedMelAW = read.csv(here::here("annotatedmelAWoverlap.csv"))
+data = read.csv(here::here("annotatedmelAW.csv"))
 
 # data = read.csv(here::here("60minutes.csv"))
 
-data = read.csv(here::here("FullMelAW.csv"))
+# data = read.csv(here::here("FullMelAW.csv"))
 
 #annotatedMelAW = read.csv(here::here("annotatedmelAWlowerhzoverlap.csv"))
 # first 30 minutes is in this data set
@@ -64,7 +64,7 @@ data = read.csv(here::here("FullMelAW.csv"))
 
 trainingdata = add_observations(whaledf = data,
                                 start_time = 0,
-                                end_time = 700,
+                                end_time = 200,
                                 num_time_steps=20, 
                                 numcep = 12,
                                 step_size = 0.05)
@@ -79,7 +79,7 @@ numnegatives = nrow(trainingdata %>% filter(Humpback == 0))
 trainingpositives = trainingdata %>% filter(Humpback == 1)
 
 
-sample(c(1:nrow(trainingpositives)), size = numnegatives)
+sort(sample(c(1:nrow(trainingpositives)), size = numnegatives))
 
 trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
 
@@ -96,8 +96,8 @@ table(trainingdatabalanced$Humpback)
 
 ```{r}
 testingdata = add_observations(whaledf = data,
-                                start_time = 2000,
-                                end_time = 2500,
+                                start_time = 1000,
+                                end_time = 1200,
                                 num_time_steps=20, 
                                 numcep = 12,
                                 step_size = 0.05)
@@ -162,7 +162,7 @@ print(rfmod_1)
 trainingdatabalanced %>%
   mutate(
     rfpreds = predict(rffit_1, trainingdatabalanced)$.pred_class
-  ) %>% dplyr::select(Humpback, rfpreds, Time_Start, Time_End)
+  ) %>% dplyr::select(Time_Start, Time_End, rfpreds, Humpback)
 
 
 
@@ -187,8 +187,11 @@ rfpredictions = testingdata %>%
     preds = predict(rffit_1, testingdata)$.pred_class
   ) %>% dplyr::select(Time_Start, Time_End, preds, Humpback)
 
+table(rfpredictions$preds)
 
-rfwindowpredictions = testing_eval_windows(rfpredictions, length = 1, threshold = 0.5)
+table(rfpredictions$Humpback)
+
+rfwindowpredictions = testing_eval_windows(rfpredictions, length = 10, threshold = 0.5)
 
 rfwindowpredictions
 
