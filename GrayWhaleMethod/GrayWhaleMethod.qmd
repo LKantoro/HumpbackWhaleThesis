@@ -59,7 +59,7 @@ data = read.csv(here::here("GrayWhaleMethod", "graywhalemethod.csv"))
 
 
 
-### Creating Balanced Training Data
+### Creating Training Data
 
 ```{r}
 
@@ -123,10 +123,10 @@ rfworkflow_1 <- workflow() %>%
 rffit_1 <- rfworkflow_1 %>% fit(data = trainingdata)
 
 
-rffit_1 |>
-  extract_fit_engine()
-
-print(rfmod_1)
+# rffit_1 |>
+#   extract_fit_engine()
+# 
+# print(rfmod_1)
 ```
 
 

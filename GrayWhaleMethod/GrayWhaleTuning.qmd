@@ -1,15 +1,10 @@
 ---
-title: "Random Forest Model Tuning"
+title: "Gray Whale Tuning"
 format: html
 editor: source
 ---
 
 
-- function for specifying context window length (num_time_steps), aggregation length, and threshold link
-
-- then compare recall, F2, and how many whales are correctly predicted
-
-- start with 2 each, create data frame of all combinations and pass it through the function
 
 
 ## Loading Libraries
@@ -41,14 +36,14 @@ source(here::here("CustomDenominator.R"))
 ## Setting Seed for Consistent Randomization
 
 ```{r}
-set.seed(716)
+set.seed(897)
 ```
 
 
 ## Loading In Data
 
 ```{r}
-data = read.csv(here::here("annotatedmelAW.csv"))
+data = read.csv(here::here("GrayWhaleMethod", "graywhalemethod.csv"))
 
 # data = read.csv(here::here("60minutes.csv"))
 
@@ -61,27 +56,23 @@ data = read.csv(here::here("annotatedmelAW.csv"))
 ```
 
 
+
+
+
+
 ## Function
 
 ```{r}
 rf_tuning = function(row){
   
   if (row["balanced"] == FALSE){
-    trainingdata = add_observations(whaledf = data,
-                                start_time = 0,
-                                end_time = 200,
-                                num_time_steps = row["num_time_steps"], 
-                                numcep = 12,
-                                step_size = 0.05)
+    trainingdata = data %>% filter(Time_Start <= 500) %>% 
+      mutate(Humpback = as.factor(Humpback))
   }
   
   if (row["balanced"] == TRUE){
-    trainingdata = add_observations(whaledf = data,
-                                start_time = 0,
-                                end_time = 200,
-                                num_time_steps = row["num_time_steps"], 
-                                numcep = 12,
-                                step_size = 0.05)
+    trainingdata = data %>% filter(Time_Start <= 500) %>% 
+      mutate(Humpback = as.factor(Humpback))
 
     numnegatives = nrow(trainingdata %>% filter(Humpback == 0))
   
@@ -92,29 +83,27 @@ rf_tuning = function(row){
     #trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
   
   
-    trainingdata = rbind(trainingdata %>% filter(Humpback == 0),
-                                trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
-                                    )
+    trainingdata = rbind(trainingdata %>% 
+                           filter(Humpback == 0), 
+                         trainingpositives[sample(c(1:nrow(trainingpositives)), 
+                                                  size = numnegatives),])
   }
   
-  testingdata = add_observations(whaledf = data,
-                                start_time = 1000,
-                                end_time = 1200,
-                                num_time_steps = row["num_time_steps"], 
-                                numcep = 12,
-                                step_size = 0.05)
+  testingdata = data %>% filter(Time_Start < 1000 & Time_Start >= 500.1) %>% 
+    mutate(Humpback = as.factor(Humpback))
   
   training_cvs = vfold_cv(trainingdata, v = 10)
   
   
-  rfmod_1 <- rand_forest(min_n = 100, trees = 2000,
-                       mtry = floor(sqrt(ncol(trainingdata) - 3))) %>%
-  set_engine("ranger") %>%               
-  set_mode("classification")            
-
+  #creating model
+  rfmod_1 <- rand_forest(min_n = 100, trees = 1000,
+                         mtry = floor(sqrt(ncol(trainingdata) - 3))) %>%
+    set_engine("ranger") %>%               
+    set_mode("classification")            
+  
   #creating recipe
   rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdata) %>%
-    step_rm(Time_Start, Time_End) %>%
+    step_rm(Time_Start, Time_End, X) %>%
     step_normalize(all_numeric_predictors()) %>%
     step_dummy(all_factor_predictors())
   
@@ -125,9 +114,12 @@ rf_tuning = function(row){
     add_recipe(rfrecipe_1)
   
   
+  
   #fitting model
   rffit_1 <- rfworkflow_1 %>% fit(data = trainingdata)
   
+  
+  #predicting on testing data
   rfpredictions = testingdata %>%
   mutate(
     preds = predict(rffit_1, testingdata)$.pred_class
@@ -138,7 +130,6 @@ rf_tuning = function(row){
                                              length = row["agg_wind_length"], 
                                              threshold = row["prop_threshold"])
   
-  rfwindowpredictions
   
   # rfwindowpredictions %>%
   #   conf_mat(truth = Humpback,
@@ -148,7 +139,7 @@ rf_tuning = function(row){
   if (nrow(rfwindowpredictions %>% filter(prediction == 1))== 0 | 
       nrow(rfwindowpredictions %>% filter(prediction == 0)) == 0){
     window_recall = -1
-    window_precision = -1
+    windpw_precision = -1
     window_F1 = -1
     
   } else {
@@ -161,7 +152,6 @@ rf_tuning = function(row){
       select(.estimate) %>% pull()
     
     window_F1 = (2 * window_recall * window_precision)/(window_recall + window_precision)
-  
   
   }
  
@@ -176,24 +166,22 @@ rf_tuning = function(row){
   output = c(row, 
              "Recall" = window_recall, 
              "Precision" = window_precision,
-             "F1" = window_F1,  
-             "proportion of calls detected" = sum(individual_calls$prediction == 1)/nrow(individual_calls))
+             "F1" = window_F1, 
+             "Proportion Calls Detected" = 
+               sum(individual_calls$prediction == 1)/nrow(individual_calls))
+  
   print(class(output))
   return(output)
 }
 
-
-# rf_tuning(num_time_steps = 20, agg_wind_length = 1, 
-#                      prop_threshold = 0.5, balanced = TRUE)
-
-
-
 ```
 
 
+
 ```{r}
-grid = vec_expand_grid(num_time_steps = c(20, 40), agg_wind_length = c(1,5), 
-                     prop_threshold = c(0.5, 0.75), balanced = c(TRUE, FALSE))
+grid = vec_expand_grid(agg_wind_length = c(1, 4, 10), 
+                     prop_threshold = c(0.5), 
+                     balanced = c(TRUE, FALSE))
 
 
 
@@ -201,33 +189,3 @@ result = apply(grid, MARGIN = 1, FUN = rf_tuning)
 data.frame(t(result)) %>% arrange(desc(Recall))
 
 ```
-
-
-```{r}
-# Sample data frame
-df <- data.frame(a = c(1, 2, 3), b = c(4, 5, 6))
-class(df)
-dim(df)
-
-# Custom function that takes a row (vector) as input
-my_function <- function(row) {
-  result <- row["a"] + row["b"]
-  result2 = row["a"] - row["b"]
-  return(c(result, result2))
-}
-
-# Apply the function row-wise (MARGIN = 1)
-apply(df, MARGIN = 1, FUN = my_function)
-
-
-(c("apple" = 1,"banana" = 2))
-
-t(c("apple" = 1,"banana" = 2))
-
-```
-
-
-```{r}
-data.frame("a" = as.factor(c(1,0,1,0,1)), "b" = as.factor(c(0,0,0,0,0))) %>% recall(truth = a, estimate = b, event_level = 'second')
-```
-
