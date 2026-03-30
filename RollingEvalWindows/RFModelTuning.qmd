@@ -164,7 +164,9 @@ rf_tuning = function(row){
                    pred_end_time = max(rfpredictions$Time_End), 
                    threshold = 0.5)
   
-  output = c(row, window_preds, sum(individual_calls$prediction == 1)/nrow(individual_calls))
+  output = c(row, 
+             "aggregation window recall" = window_preds, 
+             "proportion of calls detected" = sum(individual_calls$prediction == 1)/nrow(individual_calls))
   print(class(output))
   return(output)
 }
@@ -180,11 +182,12 @@ rf_tuning = function(row){
 
 ```{r}
 grid = vec_expand_grid(num_time_steps = c(20), aggregation_window_length = 1, 
-                     prop_threshold = 0.5, balanced = c(TRUE, FALSE))
+                     prop_threshold = c(0.5), balanced = c(TRUE))
 
 
 
-apply(grid, MARGIN = 1, FUN = rf_tuning)
+result = apply(grid, MARGIN = 1, FUN = rf_tuning)
+data.frame(t(result))
 
 ```
 
@@ -204,6 +207,11 @@ my_function <- function(row) {
 
 # Apply the function row-wise (MARGIN = 1)
 apply(df, MARGIN = 1, FUN = my_function)
+
+
+(c("apple" = 1,"banana" = 2))
+
+t(c("apple" = 1,"banana" = 2))
 
 ```
 
