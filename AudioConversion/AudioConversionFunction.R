@@ -8,7 +8,7 @@
 
 
 melcoeffs = function(wave_file, start_time, end_time, step_time, overlap_time,
-                     num_ceps){
+                     num_ceps, max_freq){
   
   # reading in wave file
   audio_data = readWave(wave_file, from = start_time, to = end_time, 
@@ -20,7 +20,7 @@ melcoeffs = function(wave_file, start_time, end_time, step_time, overlap_time,
   
   # Computing Mel Coefficients
   melcoeffs = melfcc(audio_data, wintime = step_time, hoptime = overlap_time, 
-                       numcep = num_ceps, bwidth = 1)
+                       numcep = num_ceps, bwidth = 1, maxfreq = max_freq)
   
   # Adding Time Steps to Matrix
   #17999 is for 30 minutes

@@ -27,7 +27,8 @@ mel_observation_dataframe = function(wav_file_path,
                                      end_time = 1,
                                      step_time = 0.1,
                                      overlap_time = 0.05,
-                                     num_ceps = 12
+                                     num_ceps = 12,
+                                     max_freq = 2000
                                      ){
 
   timesteps = melcoeffs(wave_file = wav_file_path,
@@ -35,7 +36,8 @@ mel_observation_dataframe = function(wav_file_path,
             end_time = end_time,
             step_time = step_time,
             overlap_time = overlap_time,
-            num_ceps = num_ceps)
+            num_ceps = num_ceps,
+            max_freq = max_freq)
   
   
   ranges = import_annotations(annotation_file_path)
@@ -69,12 +71,13 @@ mel_observation_dataframe = function(wav_file_path,
 test = mel_observation_dataframe(
   wav_file_path = here::here("TrainingData", "AW", "671658014.180928183606-AW.wav"),
             annotation_file_path = here::here("TrainingData", "AW", "AWhb.xlsx"),
-            output_file_name = "annotatedMelAW.csv",
+            output_file_name = "annotatedMelAWFull2000-1.csv",
             start_time = 0,
             end_time = 60,
             step_time = 0.1,
             overlap_time = 0.05,
-            num_ceps = 12)
+            num_ceps = 12,
+            max_freq = 2000)
 
 # set overlap_time = step_time if no overlap is desired
 
