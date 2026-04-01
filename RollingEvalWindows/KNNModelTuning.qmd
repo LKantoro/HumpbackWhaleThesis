@@ -1,0 +1,200 @@
+---
+title: "KNN Model Tuning"
+format: html
+editor: source
+---
+
+
+
+## Loading Libraries
+
+```{r}
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(ranger)
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(discrim)
+library(vctrs)
+```
+
+## Sourcing
+
+```{r}
+source(here::here("ContextWindows", "ContextWindowFunctions.R"))
+source(here::here("EvaluationWindowFunctions.R"))
+source(here::here("CustomDenominator.R"))
+```
+
+
+## Setting Seed for Consistent Randomization
+
+```{r}
+set.seed(397)
+```
+
+
+## Loading In Data
+
+```{r}
+data = read.csv(here::here("annotatedmelAW.csv"))
+
+# data = read.csv(here::here("60minutes.csv"))
+
+# data = read.csv(here::here("FullMelAW.csv"))
+
+#annotatedMelAW = read.csv(here::here("annotatedmelAWlowerhzoverlap.csv"))
+# first 30 minutes is in this data set
+
+#annotatedMelAW %>% arrange(desc(Time_End))
+```
+
+
+## Function
+
+```{r}
+knn_tuning = function(row){
+  
+  if (row["balanced"] == FALSE){
+    trainingdata = add_observations(whaledf = data,
+                                start_time = 0,
+                                end_time = 200,
+                                num_time_steps = row["num_time_steps"], 
+                                numcep = 12,
+                                step_size = 0.05)
+  }
+  
+  if (row["balanced"] == TRUE){
+    trainingdata = add_observations(whaledf = data,
+                                start_time = 0,
+                                end_time = 200,
+                                num_time_steps = row["num_time_steps"], 
+                                numcep = 12,
+                                step_size = 0.05)
+
+    numnegatives = nrow(trainingdata %>% filter(Humpback == 0))
+  
+    # taking row numbers of positive observations
+  
+    trainingpositives = trainingdata %>% filter(Humpback == 1)
+  
+    #trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
+  
+  
+    trainingdata = rbind(trainingdata %>% filter(Humpback == 0),
+                                trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
+                                    )
+  }
+  
+  testingdata = add_observations(whaledf = data,
+                                start_time = 1000,
+                                end_time = 1200,
+                                num_time_steps = row["num_time_steps"], 
+                                numcep = 12,
+                                step_size = 0.05)
+  
+  training_cvs = vfold_cv(trainingdata, v = 10)
+  
+  
+  #creating model
+  knn_mod1 = nearest_neighbor(neighbors = row["num_neighbors"]) %>%
+    set_engine("kknn") %>%
+    set_mode("classification")
+  
+  #creating recipe
+  knnrecipe_1 = recipe(Humpback ~ ., data = trainingdata) %>%
+    step_rm(Time_Start, Time_End) %>%
+    step_normalize(all_numeric_predictors()) %>%
+    step_dummy(all_factor_predictors())
+  
+  
+  #creating workflow
+  knnworkflow_1 = workflow() %>% 
+    add_recipe(knnrecipe_1) %>% 
+    add_model(knn_mod1)
+  
+  #fitting model
+  knnfit_1 = knnworkflow_1 %>% fit(trainingdata) 
+
+  
+  knnpredictions = testingdata %>%
+  mutate(
+    preds = predict(knnfit_1, testingdata)$.pred_class
+  ) %>% dplyr::select(Time_Start, Time_End, preds, Humpback)
+
+  
+  knnwindowpredictions = testing_eval_windows(knnpredictions, 
+                                             length = row["agg_wind_length"], 
+                                             threshold = row["prop_threshold"])
+  
+  knnwindowpredictions
+  
+  # knnwindowpredictions %>%
+  #   conf_mat(truth = Humpback,
+  #            estimate = prediction)
+  
+  
+  if (nrow(knnwindowpredictions %>% filter(prediction == 1))== 0 | 
+      nrow(knnwindowpredictions %>% filter(prediction == 0)) == 0){
+    window_recall = -1
+    window_precision = -1
+    window_F1 = -1
+    
+  } else {
+    window_recall = knnwindowpredictions %>% 
+      recall(truth = Humpback, estimate = prediction, event_level = 'second') %>%
+      select(.estimate) %>% pull()
+    
+    window_precision = knnwindowpredictions %>% 
+      precision(truth = Humpback, estimate = prediction, event_level = 'second') %>%
+      select(.estimate) %>% pull()
+    
+    window_F1 = (2 * window_recall * window_precision)/(window_recall + window_precision)
+  
+  
+  }
+ 
+  
+  manual_annotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
+
+  individual_calls = custom_denominator(manual_annotations, knnpredictions,
+                   pred_start_time = min(knnpredictions$Time_Start), 
+                   pred_end_time = max(knnpredictions$Time_End), 
+                   threshold = 0.5)
+  
+  output = c(row, 
+             "Recall" = window_recall, 
+             "Precision" = window_precision,
+             "F1" = window_F1,  
+             "proportion of calls detected" = sum(individual_calls$prediction == 1)/nrow(individual_calls))
+  print(class(output))
+  return(output)
+}
+
+
+# knn_tuning(num_time_steps = 20, agg_wind_length = 1, 
+#                      prop_threshold = 0.5, balanced = TRUE)
+
+
+
+```
+
+
+```{r}
+grid = vec_expand_grid(num_time_steps = c(20, 40), 
+                       num_neighbors = c(100, 250), 
+                      agg_wind_length = c(1,5), 
+                     prop_threshold = c(0.5), 
+                     balanced = c(TRUE, FALSE))
+
+# unbalanced data appears to be better
+
+result = apply(grid, MARGIN = 1, FUN = knn_tuning)
+data.frame(t(result)) %>% arrange(desc(Recall))
+
+```
