@@ -16,7 +16,7 @@ library(ggplot2)
 ```{r}
 
 #reading in data
-annotatedAW = read.csv("C:/Users/lucas/Desktop/Thesis/Code/annotatedmelAW.csv")
+annotatedAW = read.csv(here::here("annotatedMelAW2000.csv"))
 
 
 annotatedAW$Humpback = as.factor(annotatedAW$Humpback)
