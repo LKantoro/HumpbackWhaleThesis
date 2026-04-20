@@ -1,0 +1,100 @@
+---
+title: "Annotation Exploratory Data Analysis"
+format: html
+editor: source
+---
+
+
+## Loading in Libraries
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+```
+
+
+## Reading in Annotation Data
+
+
+```{r}
+manualannotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
+
+colnames(manualannotations)
+```
+
+## Mutating Data Set
+
+
+```{r}
+
+manualannotations = manualannotations %>% rename(begin_time = "Begin Time (s)",
+                                                 end_time = "End Time (s)",
+                                                 low_freq = "Low Freq (Hz)",
+                                                 high_freq = "High Freq (Hz)")
+
+```
+
+
+## Duration Summary
+
+
+
+```{r}
+manualannotations %>% ggplot(aes(x = callduration)) + geom_histogram(bins = 31) +
+  ggtitle("Histogram of Whale Call Durations")
+
+
+manualannotations %>%
+  ggplot(aes(x = callduration)) + 
+  ggtitle("Distribution of Humpback Whale Call Durations") + 
+  labs(x = "Humpback Whale Call Duration (seconds)", y = "Count") +
+  geom_histogram(binwidth = 0.25, fill = "blue", color = "black") +
+  scale_x_continuous(breaks = 0:10) +
+  theme_bw() + 
+  theme(panel.grid.minor = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        axis.ticks = element_line(color = "black"))
+```
+
+
+
+
+
+## Frequency Summary
+
+
+
+```{r}
+
+summary(manualannotations$callduration) 
+
+manualannotations %>% ggplot(aes(x = high_freq - low_freq)) + geom_histogram(bins = 21)
+
+manualannotations %>% ggplot(aes(x = high_freq)) + geom_histogram(bins = 21)
+
+manualannotations %>% ggplot(aes(x = low_freq)) + geom_histogram(bins = 21)
+
+```
+
+
+## Overlaps
+
+
+
+```{r}
+table(manualannotations$overlap)
+
+```
+
+
+### Start-Start Difference
+
+
+```{r}
+manualannotations %>% ggplot(aes(x = start_start_diff)) + geom_histogram(bins = 21)
+
+```
+
+
+

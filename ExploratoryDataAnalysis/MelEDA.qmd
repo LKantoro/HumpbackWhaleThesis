@@ -1,8 +1,10 @@
 ---
-title: "Mel EDA"
+title: "MFCC EDA"
 format: html
 editor: source
 ---
+
+## Loading in Libraries
 
 ```{r}
 library(tuneR)
@@ -11,31 +13,32 @@ library(tidyr)
 library(dplyr)
 library(readxl)
 library(ggplot2)
+library(ppls)
 ```
+
+## Loading in Data
 
 ```{r}
 
 #reading in data
-annotatedAW = read.csv(here::here("annotatedMelAW2000.csv"))
+annotatedAW = read.csv(here::here("annotatedMelAWFull2000-1.csv"))
 
+annotatedAW = annotatedAW %>% mutate(Humpback = as.factor(Humpback))
 
-annotatedAW$Humpback = as.factor(annotatedAW$Humpback)
 annotatedAW
 
 
-
-annotatedSS = read.csv("C:/Users/lucas/Desktop/Thesis/Code/annotatedmelSS.csv")
-
-
-annotatedSS$Humpback = as.factor(annotatedSS$Humpback)
-annotatedSS
 ```
+
+## Table of Reponse Variable
 
 ```{r}
 table(annotatedAW$Humpback)
 
-table(annotatedSS$Humpback)
 ```
+
+## Per-Group Summary Statistics
+
 
 ```{r}
 #calculating group means
@@ -44,14 +47,13 @@ annotatedAW %>% filter(Humpback == 1) %>% summarise(mean(V1), mean(V2), sd(V1))
 
 annotatedAW %>% filter(Humpback == 0) %>% summarise(mean(V1), mean(V2), sd(V1))
 
-annotatedSS %>% filter(Humpback == 1) %>% summarise(mean(V1), mean(V2), sd(V1))
-
-annotatedSS %>% filter(Humpback == 0) %>% summarise(mean(V1), mean(V2), sd(V1))
-
 
 
 
 ```
+
+
+## Histogram of Mel Coefficients
 
 ```{r}
 #histogram of Mel Coefficients by Humpback instance
@@ -60,7 +62,6 @@ annotatedSS %>% filter(Humpback == 0) %>% summarise(mean(V1), mean(V2), sd(V1))
 
 annotatedAW  %>% ggplot(aes(x = V1)) + geom_histogram() + facet_grid(rows = vars(Humpback))
 
-annotatedSS  %>% ggplot(aes(x = V1)) + geom_histogram() + facet_grid(rows = vars(Humpback))
 
 
 annotatedAW  %>% ggplot(aes(x = V2)) + geom_histogram() + facet_grid(rows = vars(Humpback))
@@ -71,107 +72,75 @@ annotatedAW  %>% ggplot(aes(x = V3)) + geom_histogram() + facet_grid(rows = vars
 #ggplot(data = your_dataset, aes(x = x_variable, y = y_variable))
 ```
 
+## MFCCs over time
+
+### V1
+
+
 ```{r}
-#scattterplot of mel coefficients over time
-
-
-annotatedAW %>% filter(0 < Time_Start & Time_Start < 100) %>% 
+annotatedAW %>% filter(0 <= Time_Start & Time_Start <= 100) %>%
   ggplot(aes(x = Time_Start, y = V1, col = Humpback)) + geom_point() + 
-  labs(title = "V1 Over Time, Colored by Humpback Presence")
+  labs(title = "V1 Over Time, Colored by Humpback Presence",
+       x = "Time (seconds)")
+```
 
-annotatedAW %>% filter(Time_Start < 10) %>% 
-  ggplot(aes(x = Time_Start, y = V1, col = Humpback)) + geom_point()
-
-
-annotatedSS %>% filter(Time_Start < 1000) %>% 
-  ggplot(aes(x = Time_Start, y = V1, col = Humpback)) + geom_point()
-
-annotatedSS %>% filter(Time_Start < 100) %>% 
-  ggplot(aes(x = Time_Start, y = V2, col = Humpback)) + geom_point()
+### V6
 
 
-annotatedAW %>% filter(0 < Time_Start & Time_Start < 300) %>%  filter(Humpback == 0) %>%
-  ggplot(aes(x = Time_Start, y = V1)) + geom_point() + ylim(35, 55)
+```{r}
+annotatedAW %>% filter(0 <= Time_Start & Time_Start <= 100) %>% 
+  ggplot(aes(x = Time_Start, y = V6, col = Humpback)) + geom_point() + 
+  labs(title = "V6 Over Time, Colored by Humpback Presence",
+       x = "Time (seconds)")
+```
 
 
-annotatedAW %>% filter(0 < Time_Start & Time_Start < 300) %>%  filter(Humpback == 1) %>%
-  ggplot(aes(x = Time_Start, y = V1)) + geom_point() + ylim(35, 55)
+### V12
+
+```{r}
+
+annotatedAW %>% filter(0 <= Time_Start & Time_Start <= 100) %>% 
+  ggplot(aes(x = Time_Start, y = V12, col = Humpback)) + geom_point() + 
+  labs(title = "V12 Over Time, Colored by Humpback Presence",
+       x = "Time (seconds)")
 
 ```
 
+
+
+## Plotting Differences
+
 ```{r}
-annotatedAW %>% 
-  ggplot(aes(x = V1, y = V2, col = Time_Start)) + geom_point() + facet_grid(.~Humpback)
+#differences between coefficients
+
+annotatedAW %>% mutate(V12diff = c(0, diff(V12)))
+
+annotatedAW %>% mutate(V12diff = c(0, diff(V12))) %>% 
+  filter(0 < Time_Start & Time_Start <= 100) %>% 
+  ggplot(aes(x = Time_Start, y = V12diff, col = Humpback)) + geom_point() + 
+  labs(title = "Diff V12 Over Time, Colored by Humpback Presence",
+       x = "Time (seconds)")
+
 ```
 
-```{r}
-#V1diff
-annotatedAW$V1 - annotatedAW$V1
 
-c(1,2,3,4,2,2,3,4,346346,44,7457,575675675,75) - c(2,3,4,2,2,3,4,346346,44,7457,575675675,75,0)
-
-
-annotatedSS %>% 
-  mutate(V1diff = c(NA,annotatedAW$V1[-1] - annotatedAW$V1[-length(annotatedAW$V1)])) %>% 
-  filter(1225 < Time_Start & Time_Start < 1250) %>% 
-  ggplot(aes(x = Time_Start, y = V1diff, col = Humpback)) + geom_point()
-
-
-  annotatedSS %>% 
-  mutate(V2diff = c(NA,annotatedAW$V2[-1] - annotatedAW$V2[-length(annotatedAW$V2)])) %>% 
-  filter(1225 < Time_Start & Time_Start < 1250) %>% 
-  ggplot(aes(x = Time_Start, y = V2diff, col = Humpback)) + geom_point()
-
-
-annotatedAW$V1[-1] - annotatedAW$V1[-length(annotatedAW$V1)]
-
-
-annotatedAW %>% filter(950 < Time_Start & Time_Start < 1000) %>% 
-  ggplot(aes(x = Time_Start, y = V1, col = Humpback)) + geom_point() 
-
-
-annotatedSS %>% filter(550 < Time_Start & Time_Start < 600) %>% 
-  ggplot(aes(x = Time_Start, y = V2, col = Humpback)) + geom_point() 
-
-
-annotatedSS %>% filter(550 < Time_Start & Time_Start < 600) %>% 
-  ggplot(aes(x = Time_Start, y = V3, col = Humpback)) + geom_point() 
-
-
-annotatedSS %>% filter(550 < Time_Start & Time_Start < 600) %>% 
-  ggplot(aes(x = Time_Start, y = V4, col = Humpback)) + geom_point() 
-
-annotatedSS %>% filter(550 < Time_Start & Time_Start < 600) %>% 
-  ggplot(aes(x = Time_Start, y = V5, col = Humpback)) + geom_point() 
-
-
-annotatedSS %>% filter(550 < Time_Start & Time_Start < 600) %>% 
-  ggplot(aes(x = Time_Start, y = V6, col = Humpback)) + geom_point()
-
-
-annotatedSS %>% filter(550 < Time_Start & Time_Start < 600) %>% 
-  ggplot(aes(x = Time_Start, y = V7, col = Humpback)) + geom_point()
-
-annotatedSS %>% filter(550 < Time_Start & Time_Start < 600) %>% 
-  ggplot(aes(x = Time_Start, y = V8, col = Humpback)) + geom_point()
-```
+## Plotting Normalized Vectors
 
 ```{r}
-annotatedSS %>% filter(500 < Time_Start & Time_Start < 1000) %>% 
-  ggplot(aes(x = Time_Start, y = 
-               normalize.vector(V1) + 
-               normalize.vector(V2) + 
-               normalize.vector(V3) + 
-               normalize.vector(V4) + 
-               normalize.vector(V5) + 
-               normalize.vector(V6) + 
-               normalize.vector(V7) + 
-               normalize.vector(V8) + 
-               normalize.vector(V9) + 
-               normalize.vector(V10), col = Humpback)) + geom_point()
-```
+annotatedAW = annotatedAW %>% mutate(V1normalize = normalize.vector(V1),
+                       V12normalize = normalize.vector(V12))
 
-```{r}
-library(ppls)
-normalize.vector(annotatedAW$V1)
+
+annotatedAW %>% filter(0 <= Time_Start & Time_Start <= 100) %>% 
+  ggplot(aes(x = Time_Start, y = V1normalize, col = Humpback)) + geom_point() + 
+  labs(title = "V1 Normalized Over Time, Colored by Humpback Presence",
+       x = "Time (seconds)")
+
+annotatedAW %>% filter(0 <= Time_Start & Time_Start <= 100) %>% 
+  ggplot(aes(x = Time_Start, y = V12normalize, col = Humpback)) + geom_point() + 
+  labs(title = "V12 Normalized Over Time, Colored by Humpback Presence",
+       x = "Time (seconds)")
+
+
+
 ```
