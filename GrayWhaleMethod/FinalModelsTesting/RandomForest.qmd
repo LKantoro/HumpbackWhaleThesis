@@ -1,5 +1,5 @@
 ---
-title: "Gray Whale Method (Random Forest)"
+title: "Random Forest"
 format: html
 editor: source
 ---
@@ -81,15 +81,13 @@ table(testingdata$Humpback)
 
 ```
 
+
 ### Creating Cross-Validation Folds
 
 ```{r}
 training_cvs = vfold_cv(trainingdata, v = 10)
 
 ```
-
-
-
 
 
 ## Random Forest
@@ -227,6 +225,3 @@ raven_output(testingoutput = rftestingoutput,
              end = max(rfwindowpredictions$Time_End))
 
 ```
-
-
-

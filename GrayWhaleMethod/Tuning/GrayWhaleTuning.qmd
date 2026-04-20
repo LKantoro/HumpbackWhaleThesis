@@ -1,5 +1,5 @@
 ---
-title: "Gray Whale Tuning"
+title: "Gray Whale Tuning (Random Forest)"
 format: html
 editor: source
 ---
@@ -43,7 +43,10 @@ set.seed(897)
 ## Loading In Data
 
 ```{r}
-data = read.csv(here::here("GrayWhaleMethod", "graywhalemethod.csv"))
+data = read.csv(here::here("GrayWhaleMethod", "graywhalemethod.csv")) %>%
+  mutate(Humpback = as.factor(Humpback))
+
+tempdata = data %>% filter(Time_Start < 60)
 
 # data = read.csv(here::here("60minutes.csv"))
 
@@ -56,6 +59,18 @@ data = read.csv(here::here("GrayWhaleMethod", "graywhalemethod.csv"))
 ```
 
 
+## Creating Training Data
+
+```{r}
+trainingdata = add_observations(whaledf = tempdata,
+                                start_time = 0,
+                                end_time = 10,
+                                num_time_steps = 40, 
+                                numcep = 12,
+                                step_size = 0.05)
+
+
+```
 
 
 
@@ -63,6 +78,15 @@ data = read.csv(here::here("GrayWhaleMethod", "graywhalemethod.csv"))
 ## Function
 
 ```{r}
+
+# need to cross validate instead of train-test
+# dont need to use apply function
+# just provide list of mtrys and min_n's
+
+# each model needs only a new mtry and min_n, the rest of the tuned metrics are applied after
+# predictions are made
+
+
 rf_tuning = function(row){
   
   if (row["balanced"] == FALSE){
@@ -179,7 +203,9 @@ rf_tuning = function(row){
 
 
 ```{r}
-grid = vec_expand_grid(agg_wind_length = c(1, 4, 10), 
+grid = vec_expand_grid(Time_Start = 0,
+                       Time_End = 60,
+                       agg_wind_length = c(1, 4, 10), 
                      prop_threshold = c(0.5), 
                      balanced = c(TRUE, FALSE))
 
@@ -189,3 +215,75 @@ result = apply(grid, MARGIN = 1, FUN = rf_tuning)
 data.frame(t(result)) %>% arrange(desc(Recall))
 
 ```
+
+
+
+
+
+## AI Code to Expand On
+
+```{r}
+
+
+# Split data
+iris_split <- initial_split(iris, prop = 0.8, strata = Species)
+iris_train <- training(iris_split)
+iris_test  <- testing(iris_split)
+
+# Cross-validation
+iris_folds <- vfold_cv(iris_train, v = 5, strata = Species)
+
+# Recipe
+rf_recipe <- recipe(Species ~ ., data = iris_train) %>%
+  step_normalize(all_predictors())
+
+# Random forest model (tunable mtry and min_n)
+rf_model <- rand_forest(
+  mtry = tune(),
+  min_n = tune(),
+  trees = 500
+) %>%
+  set_engine("ranger") %>%
+  set_mode("classification")
+
+# Workflow
+rf_workflow <- workflow() %>%
+  add_recipe(rf_recipe) %>%
+  add_model(rf_model)
+
+# Parameter grid
+rf_grid <- grid_regular(
+  mtry(range = c(1, 4)),   # number of predictors in iris
+  min_n(range = c(2, 10)),
+  levels = 5
+)
+
+# Tune model
+rf_tuned <- tune_grid(
+  rf_workflow,
+  resamples = iris_folds,
+  grid = rf_grid,
+  metrics = metric_set(accuracy)
+)
+
+# View results
+collect_metrics(rf_tuned)
+
+# Best parameters
+best_params <- select_best(rf_tuned, metric = "accuracy")
+best_params
+
+# Finalize workflow
+final_rf_workflow <- finalize_workflow(rf_workflow, best_params)
+
+# Fit final model
+final_rf_fit <- fit(final_rf_workflow, data = iris_train)
+
+# Evaluate on test set
+rf_preds <- predict(final_rf_fit, iris_test) %>%
+  bind_cols(iris_test)
+
+accuracy(rf_preds, truth = Species, estimate = .pred_class)
+conf_mat(rf_preds, truth = Species, estimate = .pred_class)
+```
+
