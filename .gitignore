@@ -2,3 +2,6 @@ PrivateData/
 .Rproj.user
 TrainingData
 .Rhistory
+OrigData
+TrainingSet
+EvaluationSet
