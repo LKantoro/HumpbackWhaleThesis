@@ -63,24 +63,28 @@ add_observations = function(whaledf, start_time, end_time,
   # for each initial row in which an observation is desired
   for (i in initials){
     
-    
+    if (start_time < min(whaledf$Time_Start) || max(whaledf$Time_End) < end_time) {
+      stop("Specified time range is not within data time range")
+    }
     
     #i represents the start time of an initial observation (context window)
     
-    #create observation by looping over the number of time steps
+    # create observation by looping over the number of time steps
     
     #if statement to avoid including observations at end of the file
     
     
-    if (nrow(whaledf %>% 
-             filter(i <= Time_Start & Time_Start < i + step_size*num_time_steps)) == 
-        num_time_steps)
+    # if (nrow(whaledf %>% 
+    #          filter(i <= Time_Start & Time_Start < i + step_size*num_time_steps)) == 
+    #     num_time_steps)
+    
+    if (i + step_size*num_time_steps <= end_time)
     {
       # determining whether the window has any whale call
       if (nrow(whaledf %>% 
-               filter(i <= Time_Start & Time_Start < i + step_size*num_time_steps) %>%
+               filter(i <= Time_Start & Time_Start< i + step_size*num_time_steps) %>%
                filter(Humpback == 1)) >= 1){
-        
+        #print(i)
         whale = 1
       } else {
         whale = 0
@@ -89,14 +93,16 @@ add_observations = function(whaledf, start_time, end_time,
       
       coeffs = whaledf %>% 
         filter(i <= Time_Start & Time_Start < i + step_size*num_time_steps) %>% 
-        dplyr::select(V1:paste0("V", numcep))
-      
+        dplyr::select(V1:paste0("V", numcep)) %>% slice(1:num_time_steps)
+      #print(coeffs)
       
       #c(as.matrix()) creates a vector out of a data.frame, going down columns
       dummydf = rbind(dummydf, 
                       c(as.matrix(coeffs), i, i + step_size*num_time_steps, whale))
     }
-    
+    else {
+      #print(i)
+    }
     
     #need to create conditionals for end of file
   }
