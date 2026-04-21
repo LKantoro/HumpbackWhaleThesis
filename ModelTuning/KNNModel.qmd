@@ -1,0 +1,228 @@
+---
+title: "KNN Model"
+format: html
+editor: source
+---
+
+
+
+## Loading Libraries
+
+```{r}
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(ranger)
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(discrim)
+```
+
+## Sourcing
+
+```{r}
+source(here::here("ContextWindows", "ContextWindowFunctions.R"))
+source(here::here("EvaluationWindowFunctions.R"))
+
+```
+
+
+
+## Setting Seed for Consistent Randomization
+
+```{r}
+set.seed(288)
+```
+
+
+## Loading In Data
+
+```{r}
+#annotatedMelAW = read.csv(here::here("annotatedmelAWoverlap.csv"))
+
+# data = read.csv(here::here("60minutes.csv"))
+
+data = read.csv(here::here("annotatedmelAWFull2000-1.csv"))
+
+
+#annotatedMelAW = read.csv(here::here("annotatedmelAWlowerhzoverlap.csv"))
+# first 30 minutes is in this data set
+
+#annotatedMelAW %>% arrange(desc(Time_End))
+```
+
+
+
+
+### Creating Balanced Training Data
+
+```{r}
+# start and end time are in seconds
+
+trainingdata = add_observations(whaledf = data,
+                                start_time = 0,
+                                end_time = 120,
+                                num_time_steps=40, 
+                                numcep = 12,
+                                step_size = 0.05)
+
+table(trainingdata$Humpback)
+
+numnegatives = nrow(trainingdata %>% filter(Humpback == 0))
+
+
+# taking row numbers of positive observations
+
+trainingpositives = trainingdata %>% filter(Humpback == 1)
+
+
+sample(c(1:nrow(trainingpositives)), size = numnegatives)
+
+trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
+
+
+trainingdatabalanced = rbind(trainingdata %>% filter(Humpback == 0),
+                              trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
+                                  )
+
+table(trainingdatabalanced$Humpback)
+```
+
+### Creating Testing Data
+
+
+```{r}
+testingdata = add_observations(whaledf = data,
+                                start_time = 300,
+                                end_time = 360,
+                                num_time_steps=40, 
+                                numcep = 12,
+                                step_size = 0.05)
+
+table(testingdata$Humpback)
+
+```
+
+### Creating Cross-Validation Folds
+
+```{r}
+training_cvs = vfold_cv(trainingdatabalanced, v = 10)
+```
+
+
+## KNN
+
+### Creating KNN Model
+
+```{r}
+#creating model
+knn_mod1 = nearest_neighbor(neighbors = 25) %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
+
+#creating recipe
+knnrecipe_1 = recipe(Humpback ~ ., data = trainingdatabalanced) %>%
+  step_rm(Time_Start, Time_End) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_dummy(all_factor_predictors())
+
+
+#creating workflow
+knnworkflow_1 = workflow() %>% 
+  add_recipe(knnrecipe_1) %>% 
+  add_model(knn_mod1)
+
+#fitting model
+knnfit_1 = knnworkflow_1 %>% fit(trainingdatabalanced) 
+
+
+#confusion matrix
+trainingdatabalanced %>%
+  mutate(
+    knnpreds = predict(knnfit_1, trainingdatabalanced)$.pred_class
+  ) %>%
+  conf_mat(truth = Humpback,
+           estimate = knnpreds)
+
+
+
+
+```
+
+### Cross Validating
+
+```{r}
+trainingdatabalanced %>%
+  mutate(
+    knnpreds = predict(knnfit_1, trainingdatabalanced)$.pred_class
+  ) %>% dplyr::select(Humpback, knnpreds, Time_Start, Time_End)
+
+
+#ldaworkflow_1 %>% fit_resamples(training_cvs)
+
+
+knnfitcv_1 = knnworkflow_1 %>% fit_resamples(training_cvs,
+                metrics = metric_set(accuracy, roc_auc, precision, specificity, recall)
+                )
+collect_metrics(knnfitcv_1)
+
+
+```
+
+
+
+
+
+### Predicting on Testing Data
+
+```{r}
+
+knnpredictions = testingdata %>%
+  mutate(
+    preds = predict(knnfit_1, testingdata)$.pred_class
+  ) %>% dplyr::select(Time_Start, Time_End, preds, Humpback)
+
+
+knnwindowpredictions = testing_eval_windows(knnpredictions, length = 1, threshold = 0.5)
+
+knnwindowpredictions %>%
+  conf_mat(truth = Humpback,
+           estimate = prediction)
+
+knnwindowpredictions %>% 
+  recall(truth = Humpback, estimate = prediction, event_level = 'second')
+```
+
+
+### Create Output For Raven Visualization
+
+
+```{r}
+knntestingoutput = knnwindowpredictions %>% 
+  dplyr::select(Time_Start, Time_End, Humpback, prediction)
+
+
+
+
+#creating dummy low and high frequencies for now
+
+knntestingoutput = knntestingoutput %>% mutate(low = rep(0, times = nrow(knntestingoutput)),
+                         high = rep(1000, times = nrow(knntestingoutput)))
+
+
+
+knntestingoutput = knntestingoutput %>% filter(prediction == 1) %>% 
+  rename("Begin Time (s)" = Time_Start, "End Time (s)" = Time_End, 
+         "Low Freq (Hz)" = low, "High Freq (Hz)" = high) %>% 
+  dplyr::select(c("Begin Time (s)", "End Time (s)", 
+                  "Low Freq (Hz)", "High Freq (Hz)"))
+
+
+
+#create output 
+write.table(knntestingoutput, "knnevalwindowpreds.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+```
