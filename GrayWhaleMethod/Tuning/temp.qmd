@@ -1,0 +1,75 @@
+---
+title: "temp"
+format: html
+---
+
+
+
+
+## AI Code 2
+
+```{r}
+create_df <- function(x, y) {
+  df <- data.frame(
+    input1 = x,
+    input2 = y
+  )
+  
+  return(list(
+    x = x,
+    y = y,
+    df = df
+  ))
+}
+```
+
+```{r}
+grid <- expand.grid(
+  x = 1:2,
+  y = 4:5
+)
+
+results <- mapply(
+  create_df,
+  grid$x,
+  grid$y,
+  SIMPLIFY = FALSE
+)
+
+results
+```
+
+```{r}
+a_vals <- c(2, 5)
+b_vals <- c(3, 7)
+
+grid <- expand.grid(
+  i = seq_along(results),
+  a = a_vals,
+  b = b_vals
+)
+
+grid
+```
+
+```{r}
+final_output <- mapply(function(i, a, b) {
+  res <- results[[i]]
+  
+  data.frame(
+    x = res$x,
+    y = res$y,
+    a = a,
+    b = b,
+    value = res$x * a + res$y * b
+  )
+}, grid$i, grid$a, grid$b, SIMPLIFY = FALSE)
+
+final_df <- do.call(rbind, final_output)
+
+final_df
+```
+
+
+
+
