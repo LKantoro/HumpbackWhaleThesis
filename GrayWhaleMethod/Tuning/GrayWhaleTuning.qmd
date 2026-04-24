@@ -5,8 +5,6 @@ editor: source
 ---
 
 
-
-
 ## Loading Libraries
 
 ```{r}
@@ -19,7 +17,6 @@ library(ggplot2)
 library(ranger)
 library(tidyverse)
 library(tidymodels)
-library(kknn)
 library(discrim)
 library(vctrs)
 ```
@@ -28,7 +25,7 @@ library(vctrs)
 
 ```{r}
 source(here::here("ContextWindows", "ContextWindowFunctions.R"))
-source(here::here("EvaluationWindowFunctions.R"))
+source(here::here("EvaluationWindows", "EvaluationWindowFunctions.R"))
 source(here::here("CustomDenominator.R"))
 ```
 
@@ -43,17 +40,11 @@ set.seed(897)
 ## Loading In Data
 
 ```{r}
-data = read.csv(here::here("GrayWhaleMethod", "graywhalemethod.csv")) %>%
+data = read.csv(here::here("GrayWhaleMethod", "TrainingSet", "GrayWhaleTrainingData.csv")) %>%
   mutate(Humpback = as.factor(Humpback))
 
-tempdata = data %>% filter(Time_Start < 60)
+tempdata = data %>% filter(Time_Start < 20)
 
-# data = read.csv(here::here("60minutes.csv"))
-
-# data = read.csv(here::here("FullMelAW.csv"))
-
-#annotatedMelAW = read.csv(here::here("annotatedmelAWlowerhzoverlap.csv"))
-# first 30 minutes is in this data set
 
 #annotatedMelAW %>% arrange(desc(Time_End))
 ```
@@ -64,18 +55,21 @@ tempdata = data %>% filter(Time_Start < 60)
 ```{r}
 trainingdata = add_observations(whaledf = tempdata,
                                 start_time = 0,
-                                end_time = 10,
-                                num_time_steps = 40, 
-                                numcep = 12,
-                                step_size = 0.05)
+                                end_time = 20,
+                                num_time_steps = 1, 
+                                numcep = 13,
+                                step_size = 0.1)
+
+trainingdata
 
 
+manual_annotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
 ```
 
 
 
 
-## Function
+## Balancing (if requested)
 
 ```{r}
 
@@ -86,17 +80,9 @@ trainingdata = add_observations(whaledf = tempdata,
 # each model needs only a new mtry and min_n, the rest of the tuned metrics are applied after
 # predictions are made
 
+balancing = function(trainingdata, balanced = FALSE){
 
-rf_tuning = function(row){
-  
-  if (row["balanced"] == FALSE){
-    trainingdata = data %>% filter(Time_Start <= 500) %>% 
-      mutate(Humpback = as.factor(Humpback))
-  }
-  
-  if (row["balanced"] == TRUE){
-    trainingdata = data %>% filter(Time_Start <= 500) %>% 
-      mutate(Humpback = as.factor(Humpback))
+  if (balanced == TRUE){
 
     numnegatives = nrow(trainingdata %>% filter(Humpback == 0))
   
@@ -112,22 +98,38 @@ rf_tuning = function(row){
                          trainingpositives[sample(c(1:nrow(trainingpositives)), 
                                                   size = numnegatives),])
   }
+  return(trainingdata)
   
-  testingdata = data %>% filter(Time_Start < 1000 & Time_Start >= 500.1) %>% 
-    mutate(Humpback = as.factor(Humpback))
+}
+
+balancing(trainingdata, balanced = FALSE)
+
+balancing(trainingdata, balanced = TRUE)
+
+
+```
+
+## Tuning Function
+
+
+```{r}
+
+rf_tuning_cv = function(row){
+  
+  # print(c(row["min_n_param"], row["trees_param"]))
   
   training_cvs = vfold_cv(trainingdata, v = 10)
   
   
   #creating model
-  rfmod_1 <- rand_forest(min_n = 100, trees = 1000,
+  rfmod_1 <- rand_forest(min_n = row["min_n_param"], trees = row["trees_param"],
                          mtry = floor(sqrt(ncol(trainingdata) - 3))) %>%
     set_engine("ranger") %>%               
     set_mode("classification")            
   
   #creating recipe
   rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdata) %>%
-    step_rm(Time_Start, Time_End, X) %>%
+    step_rm(Time_Start, Time_End) %>%
     step_normalize(all_numeric_predictors()) %>%
     step_dummy(all_factor_predictors())
   
@@ -138,78 +140,212 @@ rf_tuning = function(row){
     add_recipe(rfrecipe_1)
   
   
-  
-  #fitting model
-  rffit_1 <- rfworkflow_1 %>% fit(data = trainingdata)
-  
-  
-  #predicting on testing data
-  rfpredictions = testingdata %>%
-  mutate(
-    preds = predict(rffit_1, testingdata)$.pred_class
-  ) %>% dplyr::select(Time_Start, Time_End, preds, Humpback)
-
-  
-  rfwindowpredictions = testing_eval_windows(rfpredictions, 
-                                             length = row["agg_wind_length"], 
-                                             threshold = row["prop_threshold"])
+  # fitting model and saving cross validated predictions
+  rffit_1 = rfworkflow_1 %>% 
+    fit_resamples(resamples = training_cvs, 
+                  control = control_resamples(save_pred = TRUE)) 
   
   
-  # rfwindowpredictions %>%
-  #   conf_mat(truth = Humpback,
-  #            estimate = prediction)
   
   
-  if (nrow(rfwindowpredictions %>% filter(prediction == 1))== 0 | 
-      nrow(rfwindowpredictions %>% filter(prediction == 0)) == 0){
-    window_recall = -1
-    windpw_precision = -1
-    window_F1 = -1
-    
-  } else {
-    window_recall = rfwindowpredictions %>% 
-      recall(truth = Humpback, estimate = prediction, event_level = 'second') %>%
-      select(.estimate) %>% pull()
-    
-    window_precision = rfwindowpredictions %>% 
-      precision(truth = Humpback, estimate = prediction, event_level = 'second') %>%
-      select(.estimate) %>% pull()
-    
-    window_F1 = (2 * window_recall * window_precision)/(window_recall + window_precision)
+  predictions <- collect_predictions(rffit_1)
+  #print(predictions)
+  predictions = predictions %>% arrange(.row) %>%
+    select(.row, .pred_class, Humpback)
+  # print(preds)
   
-  }
- 
   
-  manual_annotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
-
-  individual_calls = custom_denominator(manual_annotations, rfpredictions,
-                   pred_start_time = min(rfpredictions$Time_Start), 
-                   pred_end_time = max(rfpredictions$Time_End), 
-                   threshold = 0.5)
   
-  output = c(row, 
-             "Recall" = window_recall, 
-             "Precision" = window_precision,
-             "F1" = window_F1, 
-             "Proportion Calls Detected" = 
-               sum(individual_calls$prediction == 1)/nrow(individual_calls))
+  rfcvpredictions = predictions %>%
+  left_join(
+    trainingdata %>%
+      mutate(.row = row_number()) %>%
+      select(.row, Time_Start, Time_End),
+    by = ".row") %>% rename(preds = .pred_class)
   
-  print(class(output))
-  return(output)
+  
+    return(rfcvpredictions)
 }
+  ##############################################################################
+
+  
+```
+
+
+```{r}
+
+grid = vec_expand_grid(min_n_param = c(100),
+  trees_param = c(1, 1000))
+
+
+result = apply(grid, MARGIN = 1, FUN = rf_tuning_cv)
+
 
 ```
 
 
 
 ```{r}
-grid = vec_expand_grid(Time_Start = 0,
-                       Time_End = 60,
-                       agg_wind_length = c(1, 4, 10), 
-                     prop_threshold = c(0.5), 
-                     balanced = c(TRUE, FALSE))
+# takes inputs of a list of dataframes, and a row from the grid
+calc_metrics <- function(df_list, row) {
+  lapply(result, function(df) {
+    print(row)
+
+    rfcvwindowpredictions = testing_eval_windows(df, 
+                                                length = row["agg_window_length"], 
+                                                threshold = row["agg_window_threshold"])
 
 
+    if (nrow(rfcvwindowpredictions %>% filter(prediction == 1))== 0 |
+        nrow(rfcvwindowpredictions %>% filter(prediction == 0)) == 0){
+      rfcv_recall = -1
+      rfcv_precision = -1
+      rfcv_f1 = -1
+      } else {
+
+        rfcv_recall = rfcvwindowpredictions %>% recall(truth = Humpback,
+                                   estimate = prediction,
+                                   event_level = 'second') %>%
+              select(.estimate) %>% pull()
+
+        rfcv_precision = rfcvwindowpredictions %>% precision(truth = Humpback,
+                                   estimate = prediction,
+                                   event_level = 'second') %>%
+              select(.estimate) %>% pull()
+
+        rfcv_f1 = (2*rfcv_recall*rfcv_precision)/(rfcv_recall + rfcv_precision)
+      }
+    # return(c("min_n_param" = row["min_n_param"],
+    # "trees_param" = row["trees_param"],
+    # "agg_window_length" = row["agg_window_length"],
+    # "agg_window_threshold" = row["agg_window_threshold"],
+    # "Recall" = rfcv_recall,
+    # "Precision" = rfcv_precision,
+    # "F1" = rfcv_f1))
+    
+    
+    #truth = rfcvwindowpredictions[[]]
+    
+    
+    # tp <- sum(truth == positive_class & pred == positive_class)
+    # fp <- sum(truth != positive_class & pred == positive_class)
+    # fn <- sum(truth == positive_class & pred != positive_class)
+    # 
+    # precision <- if ((tp + fp) == 0) NA else tp / (tp + fp)
+    # recall    <- if ((tp + fn) == 0) NA else tp / (tp + fn)
+    # 
+    # f1.score = (2 * precision * recall)/(precision + recall)
+    # 
+    # data.frame(precision = precision, recall = recall, f1 = f1.score)
+  })
+}
+
+grid2 = vec_expand_grid(min_n_param = c(100), trees_param = c(1, 1000),
+  agg_window_length = c(1, 2),
+  agg_window_threshold = c(0.5))
+grid2
+
+# calc_metrics(result, truth_col = "Humpback", pred_col = "prediction", positive_class = 1,
+#              agg_window_length = 2, agg_window_threshold = 0.5)
+
+
+apply(grid2, MARGIN = 1, FUN = calc_metrics, 
+      df_list = result)
+```
+
+
+
+```{r}
+rf_aggregation_tuning = function(result, row)
+  rfcvwindowpredictions = testing_eval_windows(rfcvpredictions, 
+                                                length = row["agg_window_length"], 
+                                                threshold = row["agg_window_threshold"])
+  
+  
+  if (nrow(rfcvwindowpredictions %>% filter(prediction == 1))== 0 | 
+      nrow(rfcvwindowpredictions %>% filter(prediction == 0)) == 0){
+    rfcv_recall = -1
+    rfcv_precision = -1
+    rfcv_f1 = -1
+    } else {
+    
+      rfcv_recall = rfcvwindowpredictions %>% recall(truth = Humpback, 
+                                 estimate = prediction, 
+                                 event_level = 'second') %>%
+            select(.estimate) %>% pull()
+      
+      rfcv_precision = rfcvwindowpredictions %>% precision(truth = Humpback, 
+                                 estimate = prediction, 
+                                 event_level = 'second') %>%
+            select(.estimate) %>% pull()
+      
+      rfcv_f1 = (2*rfcv_recall*rfcv_precision)/(rfcv_recall + rfcv_precision)
+    }
+  return(c("min_n_param" = row["min_n_param"],
+  "trees_param" = row["trees_param"],
+  "agg_window_length" = row["agg_window_length"], 
+  "agg_window_threshold" = row["agg_window_threshold"], 
+  "Recall" = rfcv_recall, 
+  "Precision" = rfcv_precision,
+  "F1" = rfcv_f1))
+```
+
+
+```{r}
+
+
+result[1]
+result[2]
+length(result)
+for (i in c(1:length(result))){
+  print(i)
+}
+
+
+for (i in c(1:2)){
+  print(result[i])
+}
+
+data.frame(t(result)) %>% arrange(desc(Recall))
+
+
+
+
+
+
+# rf_tuning(min_n_param = 100,
+#   trees_param = 1000,
+#   agg_window_length = 2, 
+#   agg_window_threshold = 0.5)
+
+# min_n, trees, length, threshold as inputs
+```
+
+
+```{r}
+
+individual_calls = custom_denominator(manual_annotations, rfpredictions,
+                 pred_start_time = min(rfpredictions$Time_Start), 
+                 pred_end_time = max(rfpredictions$Time_End), 
+                 threshold = 0.5)
+
+output = c(row, 
+           "Recall" = window_recall, 
+           "Precision" = window_precision,
+           "F1" = window_F1, 
+           "Proportion Calls Detected" = 
+             sum(individual_calls$prediction == 1)/nrow(individual_calls))
+
+```
+
+
+
+```{r}
+grid = vec_expand_grid(agg_wind_length = 4, 
+                     prop_threshold = 0.5)
+
+
+rf_tuning(trainingdata = trainingdata)
 
 result = apply(grid, MARGIN = 1, FUN = rf_tuning)
 data.frame(t(result)) %>% arrange(desc(Recall))
@@ -217,6 +353,41 @@ data.frame(t(result)) %>% arrange(desc(Recall))
 ```
 
 
+## Precision-Recall Curve
+
+
+```{r}
+library(PRROC)
+library(ggplot2)
+
+# Example data
+y_true <- c(1,0,1,1,0,0,1,0,1,0)
+y_scores <- c(0.9,0.2,0.8,0.7,0.3,0.4,0.95,0.1,0.85,0.5)
+
+# Separate scores
+scores_pos <- y_scores[y_true == 1]
+scores_neg <- y_scores[y_true == 0]
+
+# Compute PR curve
+pr <- pr.curve(scores.class0 = scores_pos,
+               scores.class1 = scores_neg,
+               curve = TRUE)
+
+# Extract curve data
+pr_df <- data.frame(
+  recall = pr$curve[, 1],
+  precision = pr$curve[, 2],
+  threshold = pr$curve[, 3]
+)
+
+# Plot with ggplot
+ggplot(pr_df, aes(x = recall, y = precision)) +
+  geom_line(color = "blue", size = 1) +
+  labs(title = "Precision-Recall Curve",
+       x = "Recall",
+       y = "Precision") +
+  theme_minimal()
+```
 
 
 
@@ -286,4 +457,6 @@ rf_preds <- predict(final_rf_fit, iris_test) %>%
 accuracy(rf_preds, truth = Species, estimate = .pred_class)
 conf_mat(rf_preds, truth = Species, estimate = .pred_class)
 ```
+
+
 
