@@ -23,8 +23,20 @@ library(readxl)
 
 
 
-training = read_csv(here::here("annotatedmelAW.csv")) %>% 
-  mutate(Humpback = as.factor(Humpback))
+training = read_csv(here::here("annotatedmelAW2000.csv")) %>% 
+  mutate(Humpback = as.factor(Humpback)) %>% select(-1)
+
+training1 = read_csv(here::here("annotatedmelAW2000.csv")) %>% 
+  mutate(Humpback = as.factor(Humpback)) %>% select(-1) %>%
+  filter(Time_Start < 3600)
+
+training2 = read_csv(here::here("annotatedmelAW2000.csv")) %>% 
+  mutate(Humpback = as.factor(Humpback)) %>% select(-1) %>% 
+  filter(3600 <= Time_Start & Time_Start < 7200)
+
+testing = read_csv(here::here("annotatedmelAW2000.csv")) %>% 
+  mutate(Humpback = as.factor(Humpback)) %>% select(-1) %>%
+  filter(Time_Start >= 7200)
 
 
 #testing1 = read_csv("C:/Users/lucas/Desktop/Thesis/Code/annotatedmelAS.csv")
@@ -32,8 +44,8 @@ training = read_csv(here::here("annotatedmelAW.csv")) %>%
 #testing1 = testing1 %>% mutate(Humpback = as.factor(Humpback))
 
 
-testing2 = read_csv(here::here("annotatedmelSS.csv")) %>% 
-  mutate(Humpback = as.factor(Humpback))
+# testing2 = read_csv(here::here("annotatedmelSS.csv")) %>% 
+#   mutate(Humpback = as.factor(Humpback))
 
 
 ```
@@ -41,11 +53,16 @@ testing2 = read_csv(here::here("annotatedmelSS.csv")) %>%
 ## Exploratory Data Analysis
 
 ```{r}
-table(training$Humpback)
+table(training1$Humpback)
+
+table(training2$Humpback)
+
+table(testing$Humpback)
+
 
 #table(testing1$Humpback)
 
-table(testing2$Humpback)
+#table(testing2$Humpback)
 
 ```
 
@@ -53,7 +70,8 @@ table(testing2$Humpback)
 
 ```{r}
 set.seed(883)
-training_cvs = vfold_cv(training, v = 10)
+
+training_cvs = vfold_cv(training1, v = 10)
 
 ```
 
@@ -66,9 +84,8 @@ knn_mod1 = nearest_neighbor(neighbors = 775) %>%
   set_mode("classification")
 
 #creating recipe
-knnrecipe_1 = recipe(Humpback ~ V1 + V2 + V3 + V4 + V5 + 
-                       V6 + V7, 
-                     data = training) %>%
+knnrecipe_1 = recipe(Humpback ~ ., data = training1) %>%
+  step_rm(Time_Start, Time_End) %>%
   step_normalize(all_numeric_predictors()) %>%
   step_dummy(all_factor_predictors())
 
@@ -79,13 +96,13 @@ knnworkflow_1 = workflow() %>%
   add_model(knn_mod1)
 
 #fitting model
-knnfit_1 = knnworkflow_1 %>% fit(training) 
+knnfit_1 = knnworkflow_1 %>% fit(training1) 
 
 
 #confusion matrix
-training %>%
+training1 %>%
   mutate(
-    knnpreds = predict(knnfit_1, training)$.pred_class
+    knnpreds = predict(knnfit_1, training1)$.pred_class
   ) %>%
   conf_mat(truth = Humpback,
            estimate = knnpreds)
@@ -109,6 +126,41 @@ collect_metrics(knnfitcv_1)
 
 
 ```
+
+
+
+
+## Tuning
+
+```{r}
+k_grid <- grid_regular(neighbors(c(100,400)), 
+                       levels = 4)
+
+knn_mod_tune <- nearest_neighbor(neighbors = tune()) %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
+
+
+knnworkflow_tune <- workflow() %>%
+  add_recipe(knnrecipe_1) %>%
+  add_model(knn_mod_tune)
+
+
+knn_grid_search <-
+  tune_grid(
+    knnworkflow_tune,
+    resamples = training_cvs,
+    grid = k_grid
+  )
+
+knn_grid_search %>% collect_metrics()
+
+
+knn_grid_search %>% 
+  collect_metrics()
+```
+
+
 
 ## Fitting on Testing-Sets
 
