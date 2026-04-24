@@ -52,20 +52,24 @@ add_observations = function(whaledf, start_time, end_time,
                             num_time_steps = 40, numcep = 12, step_size){
   
   
+  
+  
   dummydf = initializing_observations(numcep, num_time_steps)
   
   # subsetting on only the observed range
   whaledf = whaledf %>% 
     filter(start_time <= Time_Start & Time_Start < end_time)
   
+  
+  if (start_time < min(whaledf$Time_Start) || max(whaledf$Time_End) < end_time) {
+    stop("Specified time range is not within data time range")
+  }
+  
   # filtering on initial times
   initials = whaledf %>% pull(Time_Start)
   # for each initial row in which an observation is desired
   for (i in initials){
     
-    if (start_time < min(whaledf$Time_Start) || max(whaledf$Time_End) < end_time) {
-      stop("Specified time range is not within data time range")
-    }
     
     #i represents the start time of an initial observation (context window)
     
