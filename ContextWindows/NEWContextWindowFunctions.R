@@ -1,37 +1,18 @@
-# Creating Empty Data Frame
+initializing_names <- function(numcep, num_time_steps) {
+  base_names <- paste0(
+    "V",
+    rep(seq_len(numcep), each = num_time_steps),
+    "_",
+    rep(seq_len(num_time_steps), times = numcep)
+  )
+  
+  extra_names <- c("Time_Start", "Time_End", "Humpback")
+  
+  all_names <- c(base_names, extra_names)
+  
 
-
-
-initializing_observations = function(numcep, num_time_steps){
-  #testdf = data.frame(nrow = num_time_steps*numcep)
-  #print(testdf)
-  colnamelist = list()
-  for (i in 1:numcep){
-    for (j in 1:num_time_steps){
-      #print(i)
-      #print(j)
-      #testdf = cbind(testdf, paste0("V1_",i))
-      colnamelist = append(colnamelist, paste0("V", i, "_", j))
-    }
-  }
-  #adding Time_Start and Time_End variables to end of each row
-  colnamelist = append(colnamelist, "Time_Start")
-  colnamelist = append(colnamelist, "Time_End")
-  colnamelist = append(colnamelist, "Humpback")
-  
-  
-  dummydf = data.frame(matrix(nrow = 1, ncol = num_time_steps*numcep + 3))
-  
-  colnames(dummydf) = colnamelist
-  
-  
-  
-  
-  
-  return(dummydf)
-  
+  return(all_names)
 }
-
 
 ################################################################################
 
@@ -47,14 +28,10 @@ initializing_observations = function(numcep, num_time_steps){
 # step size is the number of steps in a context window
 
 
-
 add_observations = function(whaledf, start_time, end_time,
                             num_time_steps = 40, numcep = 12, step_size){
   
-  
-  
-  
-  dummydf = initializing_observations(numcep, num_time_steps)
+  rows = vector("list", 80000)
   
   # subsetting on only the observed range
   whaledf = whaledf %>% 
@@ -64,6 +41,8 @@ add_observations = function(whaledf, start_time, end_time,
   if (start_time < min(whaledf$Time_Start) || max(whaledf$Time_End) < end_time) {
     stop("Specified time range is not within data time range")
   }
+  
+  iter = 0
   
   # filtering on initial times
   initials = whaledf %>% pull(Time_Start)
@@ -77,53 +56,43 @@ add_observations = function(whaledf, start_time, end_time,
     
     #if statement to avoid including observations at end of the file
     
-    
-    # if (nrow(whaledf %>% 
-    #          filter(i <= Time_Start & Time_Start < i + step_size*num_time_steps)) == 
-    #     num_time_steps)
-    
     if (i + step_size*num_time_steps <= end_time)
     {
+      iter = iter + 1
+      
+      window = whaledf %>% 
+        filter(i <= Time_Start & Time_Start< i + step_size*num_time_steps)
+      
       # determining whether the window has any whale call
-      if (nrow(whaledf %>% 
-               filter(i <= Time_Start & Time_Start< i + step_size*num_time_steps) %>%
+      if (nrow(window %>%
                filter(Humpback == 1)) >= 1){
-        #print(i)
+        
         whale = 1
       } else {
         whale = 0
       }
       
-      
-      coeffs = whaledf %>% 
-        filter(i <= Time_Start & Time_Start < i + step_size*num_time_steps) %>% 
+      coeffs = window %>% 
         dplyr::select(V1:paste0("V", numcep)) %>% slice(1:num_time_steps)
-      #print(coeffs)
       
-      #c(as.matrix()) creates a vector out of a data.frame, going down columns
-      dummydf = rbind(dummydf, 
-                      c(as.matrix(coeffs), i, i + step_size*num_time_steps, whale))
-    }
+      rows[[iter]] = c(as.matrix(coeffs), i, i + step_size*num_time_steps, whale)
+      }
     else {
-      #print(i)
+      break
     }
+    }
+    results = do.call(rbind, rows)
+    
+    column_names = initializing_names(numcep, num_time_steps)
+    
+    colnames(results) = column_names
+    
+    results = results %>% data.frame() %>%
+      drop_na() %>% mutate(Humpback = as.factor(Humpback))
     
     #need to create conditionals for end of file
-  }
-  dummydf = dummydf %>% drop_na() %>% mutate(Humpback = as.factor(Humpback))
-  
-  return(dummydf)
+
+    return(results)
+
 }
-
-
-
-################################################################################
-
-
-
-
-
-
-
-
 
