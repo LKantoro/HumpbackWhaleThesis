@@ -58,7 +58,10 @@ set.seed(897)
 ## Loading In Data
 
 ```{r}
-data = read.csv(here::here("GrayWhaleMethod", "TrainingSet", "GrayWhaleTrainingData.csv")) %>%
+# data = read.csv(here::here("GrayWhaleMethod", "TrainingSet", "GrayWhaleTrainingData.csv")) %>%
+#   mutate(Humpback = as.factor(Humpback))
+
+data = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
   mutate(Humpback = as.factor(Humpback))
 
 tempdata = data %>% filter(Time_Start <= 7200)
@@ -74,18 +77,20 @@ max(tempdata$Time_End)
 
 trainingdata = add_observations_linear(whaledf = tempdata,
                                 start_time = 0,
-                                end_time =  500,
-                                num_time_steps = 1, 
-                                numcep = 13,
+                                end_time =  300,
+                                num_time_steps = 40, 
+                                numcep = 12,
                                 step_size = 0.1)
 
 
 trainingdata2 = add_observations(whaledf = tempdata,
                                 start_time = 0,
-                                end_time = 500,
-                                num_time_steps = 1, 
-                                numcep = 13,
+                                end_time = 300,
+                                num_time_steps = 40, 
+                                numcep = 12,
                                 step_size = 0.1)
+
+trainingdata2
 
 trainingdata
 
