@@ -1,5 +1,5 @@
 ---
-title: "temp2"
+title: "Gray Whale Random Forest Tuning"
 format: html
 ---
 
@@ -23,14 +23,14 @@ library(vctrs)
 
 
 ```{r}
-grid = vec_expand_grid(min_n_param = c(100, 500),
+grid = vec_expand_grid(min_n_param = c(100),
   trees_param = c(1000))
 
-agg_window_length = c(2, 8)
-#agg_window_threshold = seq(0, 1, by = 0.05)
+agg_window_length = c(2)
+agg_window_threshold = seq(0, 1, by = 0.05)
 
 #agg_window_length = c(2)
-agg_window_threshold = c(0.5)
+#agg_window_threshold = c(0.5)
 
 ```
 
@@ -40,9 +40,11 @@ agg_window_threshold = c(0.5)
 ## Sourcing
 
 ```{r}
-source(here::here("ContextWindows", "ContextWindowFunctions.R"))
 source(here::here("EvaluationWindows", "EvaluationWindowFunctions.R"))
 source(here::here("CustomDenominator.R"))
+source(here::here("ContextWindows", "AIContextWindowFunction.R"))
+source(here::here("ContextWindows", "NEWContextWindowFunctions.R"))
+
 ```
 
 
@@ -59,9 +61,9 @@ set.seed(897)
 data = read.csv(here::here("GrayWhaleMethod", "TrainingSet", "GrayWhaleTrainingData.csv")) %>%
   mutate(Humpback = as.factor(Humpback))
 
-tempdata = data %>% filter(Time_Start <= 1000)
+tempdata = data %>% filter(Time_Start <= 7200)
 
-
+max(tempdata$Time_End)
 #annotatedMelAW %>% arrange(desc(Time_End))
 ```
 
@@ -69,17 +71,27 @@ tempdata = data %>% filter(Time_Start <= 1000)
 ## Creating Training Data
 
 ```{r}
-trainingdata = add_observations(whaledf = tempdata,
+
+trainingdata = add_observations_linear(whaledf = tempdata,
                                 start_time = 0,
-                                end_time = 1000,
+                                end_time =  500,
+                                num_time_steps = 1, 
+                                numcep = 13,
+                                step_size = 0.1)
+
+
+trainingdata2 = add_observations(whaledf = tempdata,
+                                start_time = 0,
+                                end_time = 500,
                                 num_time_steps = 1, 
                                 numcep = 13,
                                 step_size = 0.1)
 
 trainingdata
 
+all.equal(trainingdata, trainingdata2)
 
-manual_annotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
+#manual_annotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
 ```
 
 
@@ -92,7 +104,7 @@ rf_tuning_cv = function(min_n_param, trees_param){
   
   # print(c(row["min_n_param"], row["trees_param"]))
   
-  training_cvs = vfold_cv(trainingdata, v = 10)
+  training_cvs = vfold_cv(trainingdata, v = 5)
   
   #creating model
   rfmod_1 <- rand_forest(min_n = min_n_param, trees = trees_param,
@@ -168,16 +180,24 @@ grid2
 
 ```{r}
 
+source(here::here("EvaluationWindows", "NEWEvaluationWindowFunctions.R"))
+
+
 calc_metrics = mapply(function(i, lengths, thresholds){
   res = results[[i]]
   
   min_n = res$min_n_param
   trees = res$trees_param
-  #print(c(min_n, trees, lengths, thresholds))
-  rfcvwindowpredictions = testing_eval_windows(res$rfcvpredictions, 
-                                                length = lengths, 
-                                                threshold = thresholds)
+
+  # rfcvwindowpredictions = testing_eval_windows(res$rfcvpredictions,
+  #                                               length = lengths,
+  #                                               threshold = thresholds)
   
+  
+  rfcvwindowpredictions = testing_eval_windows_linear(res$rfcvpredictions,
+                                                length = lengths,
+                                                threshold = thresholds)
+
   #print(rfcvwindowpredictions)
   
   
@@ -235,7 +255,7 @@ calc_metrics = mapply(function(i, lengths, thresholds){
 
 final_df <- do.call(rbind, calc_metrics)
 
-final_df %>% data.frame() %>% filter(agg_window_length == 8) %>% arrange(desc(Recall))
+final_df %>% data.frame() %>% arrange(desc(Recall))
 
 sorted_df = final_df %>% data.frame() %>% arrange(desc(F2))
 
@@ -300,5 +320,26 @@ ggplot(pr_df, aes(x = recall, y = precision)) +
        x = "Recall",
        y = "Precision") +
   theme_minimal()
+```
+
+
+
+```{r}
+create_df <- function(n) {
+  rows <- vector("list", n)
+  
+  for (i in 1:n) {
+    rows[[i]] <- data.frame(
+      id = i,
+      value = i^2
+    )
+  }
+  
+  result <- do.call(rbind, rows)
+  return(result)
+}
+
+
+create_df(5)
 ```
 
