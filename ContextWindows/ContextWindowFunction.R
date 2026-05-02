@@ -18,7 +18,8 @@ initializing_names <- function(numcep, num_time_steps) {
 
 
 add_observations_linear = function(whaledf, start_time, end_time,
-                                   num_time_steps = 40, numcep = 12, step_size) {
+                                   num_time_steps = 40, numcep = 12, 
+                                   step_size, jump_size = 0.1) {
   
   whaledf = whaledf %>%
     dplyr::filter(start_time <= Time_Start & Time_Start < end_time) %>%
@@ -33,7 +34,7 @@ add_observations_linear = function(whaledf, start_time, end_time,
   }
   
   n = nrow(whaledf)
-  window_len = step_size * num_time_steps
+  window_len = jump_size * num_time_steps
   
   # cumulative whale counts
   whale_flag = as.integer(whaledf$Humpback == 1)
