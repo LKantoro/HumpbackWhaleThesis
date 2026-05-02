@@ -26,7 +26,7 @@ library(tictoc)
 ```{r}
 #source(here::here("EvaluationWindows", "EvaluationWindowFunctions.R"))
 #source(here::here("CustomDenominator.R"))
-source(here::here("ContextWindows", "AIContextWindowFunction.R"))
+source(here::here("ContextWindows", "ContextWindowFunction.R"))
 
 ```
 
@@ -34,18 +34,18 @@ source(here::here("ContextWindows", "AIContextWindowFunction.R"))
 ## Setting Seed for Consistent Randomization
 
 ```{r}
-set.seed(197)
+set.seed(444)
 ```
 
 
 ## Loading In Data
 
 ```{r}
-# data = read.csv(here::here("GrayWhaleMethod", "TrainingSet", "GrayWhaleTrainingData.csv")) %>%
-#   mutate(Humpback = as.factor(Humpback))
-
-data = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
+data = read.csv(here::here("TrainingSet", "AWnooverlap.csv")) %>%
   mutate(Humpback = as.factor(Humpback))
+
+# data = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
+#   mutate(Humpback = as.factor(Humpback))
 
 
 #annotatedMelAW %>% arrange(desc(Time_End))
@@ -57,9 +57,9 @@ data = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>
 
 
 
-grid = vec_expand_grid(neighbors_param = 1000)
+grid = vec_expand_grid(neighbors_param = c(15, 100))
 
-num_time_steps = 40
+num_time_steps = 20
 
 agg_window_length = c(2)
 #agg_window_threshold = seq(0, 1, by = 0.05)
@@ -75,23 +75,31 @@ agg_window_threshold = c(0.5)
 
 
 
-
 trainingdata = add_observations_linear(whaledf = data,
-                                start_time = 4000,
-                                end_time = 4500,
+                                start_time = 0,
+                                end_time = 7200,
                                 num_time_steps = num_time_steps, 
                                 numcep = 12,
                                 step_size = 0.1,
-                                jump_size = 0.05)
+                                jump_size = 0.2)
+
+trainingdata %>% select(Time_Start, Time_End, Humpback)
 
 
+trainingdata2 = add_observations_linear_tolerance(whaledf = data,
+                                start_time = 0,
+                                end_time = 7200,
+                                num_time_steps = num_time_steps, 
+                                numcep = 12,
+                                step_size = 0.1,
+                                jump_size = 0.5)
 
 
+trainingdata2 %>% select(Time_Start, Time_End, Humpback)
 
-#trainingdata
 
 table(trainingdata$Humpback)
-#table(trainingdata2$Humpback)
+
 trainingdata$Humpback <- relevel(trainingdata$Humpback, ref = 1)
 #manual_annotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
 ```
@@ -171,6 +179,10 @@ results
 table(results[[1]]$knncvpredictions$Humpback)
 table(results[[1]]$knncvpredictions$preds)
 
+
+table(results[[2]]$knncvpredictions$Humpback)
+table(results[[2]]$knncvpredictions$preds)
+
 ```
 
 ```{r}
@@ -221,22 +233,18 @@ knn_tuning_cv_multi_nopreds <- function(k_values) {
   # collect metrics (default F1)
   metrics_f1 <- collect_metrics(knn_tuned)
   
-  # collect F2 separately
-  metrics_f2 <- collect_metrics(knn_tuned, metric = "f_meas", beta = 2) %>%
-    mutate(.metric = "f2")
   
   toc()
   
   return(list(
     k_values = k_values,
     tuning_results = knn_tuned,
-    metrics_f1 = metrics_f1,
-    metrics_f2 = metrics_f2
+    metrics_f1 = metrics_f1
   ))
 }
 
 
-results <- knn_tuning_cv_multi_nopreds(c(3,5,7,9))
+results <- knn_tuning_cv_multi_nopreds(c(15, 100))
 
 results$metrics_f1   # precision, recall, F1
 results$metrics_f2   # F2 scores
