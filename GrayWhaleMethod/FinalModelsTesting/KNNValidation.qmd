@@ -1,11 +1,7 @@
 ---
-title: "Random Forest"
+title: "KNN Final Model Evaluation"
 format: html
-editor: source
 ---
-
-
-
 
 
 ## Loading Libraries
@@ -20,16 +16,19 @@ library(ggplot2)
 library(ranger)
 library(tidyverse)
 library(tidymodels)
+library(kknn)
 library(discrim)
-library(randomForest)
+library(purrr)
+library(yardstick)
 ```
+
 
 ## Sourcing
 
 ```{r}
 source(here::here("ContextWindows", "ContextWindowFunction.R"))
 source(here::here("EvaluationWindows", "RollingAverage.R"))
-source(here::here("TestingPredictionIntervals.R"))
+source(here::here("TestingPredictionIntervals"))
 ```
 
 
@@ -72,8 +71,6 @@ table(trainingdata$Humpback)
 
 ```
 
-
-
 ## Creating Testing Data
 
 
@@ -101,50 +98,49 @@ manual_annotations_evaluation =
 ```
 
 
+
 ## Creating Final Model
 
 ```{r}
+# TEMP NEIGHBORS VALUE
+neighbors_param = 1
 
-#creating model
-rfmod_1 <- rand_forest(min_n = 100, trees = 1000,
-                       mtry = floor(sqrt(ncol(trainingdata) - 3))) %>%
-  set_engine("ranger") %>%               
-  set_mode("classification")            
+# creating model
+knnmod_1 <- nearest_neighbor(
+  neighbors = neighbors_param,
+  weight_func = "rectangular",
+  dist_power = 2
+) %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
 
-#creating recipe
-rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdata) %>%
+# creating recipe
+knnrecipe_1 <- recipe(Humpback ~ ., data = trainingdata) %>%
+  step_rm(Time_Start, Time_End) %>%
   step_normalize(all_numeric_predictors()) %>%
   step_dummy(all_factor_predictors())
 
+# creating workflow
+knnworkflow_1 <- workflow() %>%
+  add_model(knnmod_1) %>%
+  add_recipe(knnrecipe_1)
 
-#creating workflow
-rfworkflow_1 <- workflow() %>%
-  add_model(rfmod_1) %>%
-  add_recipe(rfrecipe_1)
-
-
-
-#fitting model
-rffit_1 <- rfworkflow_1 %>% fit(data = trainingdata)
-
-
+# fitting model
+knnfit_1 = knnworkflow_1 %>%
+  fit(trainingdata)
 ```
-
-
-
 
 
 
 
 ## Predicting on Testing Data
 
+
 ```{r}
-predictionsdf = testingdata %>% mutate(preds = predict(rffit_1, testingdata)$.pred_class)
+predictionsdf = testingdata %>% mutate(preds = predict(knnfit_1, testingdata)$.pred_class)
+# each run takes ~ 4 minutes
 table(predictionsdf$preds)
 ```
-
-
-
 
 
 ## Creating Aggregation Grid
@@ -191,38 +187,38 @@ whale_call_metrics_type1 <- function(row, predictionsdf) {
   print(rolling_average)
     
   if (nrow(rolling_average %>% filter(rolling_avg_prediction == 1)) == 0) {
-    rfeval_recall <- 0
-    rfeval_precision <- NA
+    knneval_recall <- 0
+    knneval_precision <- NA
     
   } else if (nrow(rolling_average %>% filter(rolling_avg_prediction == 0)) == 0) {
-    rfeval_recall <- 1
-    rfeval_precision <- nrow(rolling_average %>% filter(Humpback == 1)) /
+    knneval_recall <- 1
+    knneval_precision <- nrow(rolling_average %>% filter(Humpback == 1)) /
       nrow(rolling_average %>% filter(rolling_avg_prediction == 1))
     
   } else if (nrow(rolling_average %>% filter(Humpback == 1)) == 0) {
-    rfeval_recall <- NA
-    rfeval_precision <- 0
+    knneval_recall <- NA
+    knneval_precision <- 0
     
   } else {
-    rfeval_recall <- rolling_average %>%
+    knneval_recall <- rolling_average %>%
       recall(truth = Humpback, estimate = rolling_avg_prediction, event_level = "second") %>%
       pull(.estimate)
     
-    rfeval_precision <- rolling_average %>%
+    knneval_precision <- rolling_average %>%
       precision(truth = Humpback, estimate = rolling_avg_prediction, event_level = "second") %>%
       pull(.estimate)
   }
   
-  rfeval_f1 <- (2 * rfeval_recall * rfeval_precision) / (rfeval_recall + rfeval_precision)
-  rfeval_f2 <- (5 * rfeval_recall * rfeval_precision) / (rfeval_recall + 4 * rfeval_precision)
+  knneval_f1 <- (2 * knneval_recall * knneval_precision) / (knneval_recall + knneval_precision)
+  knneval_f2 <- (5 * knneval_recall * knneval_precision) / (knneval_recall + 4 * knneval_precision)
   
   data.frame(
     agg_window_length = agg_window_length,
     agg_window_threshold = agg_window_threshold,
-    Recall = rfeval_recall,
-    Precision = rfeval_precision,
-    F1 = rfeval_f1,
-    F2 = rfeval_f2
+    Recall = knneval_recall,
+    Precision = knneval_precision,
+    F1 = knneval_f1,
+    F2 = knneval_f2
   )
 }
 
@@ -350,6 +346,8 @@ sorted_df_type2 %>%
   theme_minimal()
 ```
 
+
+
 ## Saving Predictions of Best Parameters
 
 
@@ -371,34 +369,4 @@ prediction_windows_best <- creating_prediction_windows(
 )
 
 prediction_windows_best
-```
-
-
-
-
-## Create Output For Raven Visualization
-
-```{r}
-
-raven_output = function(windows){
-  print(windows)
-  #creating dummy low and high frequencies
-  windows = windows %>% 
-    rename("Begin Time (s)" = start_time, "End Time (s)" = end_time) %>% 
-    mutate("Low Freq (Hz)" = 0, "High Freq (Hz)" = 2000) %>% 
-    dplyr::select(c("Begin Time (s)", "End Time (s)", 
-                    "Low Freq (Hz)", "High Freq (Hz)"))
-  
-  
-  #create output 
-  write.table(windows, 
-              paste0("graywhalemethodrfevalwindowpreds", 
-                     "len", agg_window_length_best, 
-                     "thres", agg_window_threshold_best,
-                     ".txt"), 
-              sep = "\t", row.names = FALSE, quote = FALSE)
-}
-
-raven_output(windows = prediction_windows_best)
-
 ```
