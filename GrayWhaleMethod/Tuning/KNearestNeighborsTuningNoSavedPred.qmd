@@ -22,7 +22,7 @@ library(kknn)
 library(discrim)
 library(vctrs)
 library(PRROC)
-
+library(tictoc)
 ```
 
 
@@ -41,7 +41,7 @@ source(here::here("ContextWindows", "ContextWindowFunction.R"))
 ## Setting Seed for Consistent Randomization
 
 ```{r}
-set.seed(897)
+set.seed(655)
 ```
 
 
@@ -145,7 +145,7 @@ knn_tuning_cv_multi_nopreds <- function(k_values) {
 
 ```{r}
 
-results <- knn_tuning_cv_multi_nopreds(c(10,100, 400))
+results <- knn_tuning_cv_multi_nopreds(c(1, 3, 50, 75))
 
 # precision, recall, F1, and F2
 
