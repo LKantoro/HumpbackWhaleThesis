@@ -9,8 +9,6 @@ editor: source
 ## Loading Libraries
 
 ```{r}
-library(tuneR)
-library(seewave)
 library(tidyr)
 library(dplyr)
 library(readxl)
@@ -18,18 +16,20 @@ library(ggplot2)
 library(ranger)
 library(tidyverse)
 library(tidymodels)
-library(kknn)
 library(discrim)
+library(vctrs)
+
 ```
+
 
 ## Sourcing
 
 ```{r}
-source(here::here("ContextWindows", "ContextWindowFunctions.R"))
-source(here::here("EvaluationWindowFunctions.R"))
-source(here::here("CustomDenominator.R"))
-```
+#source(here::here("EvaluationWindows", "EvaluationWindowFunctions.R"))
+#source(here::here("CustomDenominator.R"))
+source(here::here("ContextWindows", "AIContextWindowFunction.R"))
 
+```
 
 
 ## Setting Seed for Consistent Randomization
@@ -39,22 +39,33 @@ set.seed(656)
 ```
 
 
-## Loading In Data
+
+## Creating Training Data
 
 ```{r}
-data = read.csv(here::here("annotatedmelAW.csv"))
 
-# data = read.csv(here::here("60minutes.csv"))
 
-# data = read.csv(here::here("FullMelAW.csv"))
 
-#annotatedMelAW = read.csv(here::here("annotatedmelAWlowerhzoverlap.csv"))
-# first 30 minutes is in this data set
 
-#annotatedMelAW %>% arrange(desc(Time_End))
+trainingdata = add_observations_linear(whaledf = data,
+                                start_time = 4000,
+                                end_time = 4500,
+                                num_time_steps = num_time_steps, 
+                                numcep = 12,
+                                step_size = 0.1,
+                                jump_size = 0.05)
+
+
+
+
+
+#trainingdata
+
+table(trainingdata$Humpback)
+#table(trainingdata2$Humpback)
+trainingdata$Humpback <- relevel(trainingdata$Humpback, ref = 1)
+#manual_annotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
 ```
-
-
 
 
 ### Creating Balanced Training Data
@@ -89,28 +100,6 @@ trainingdatabalanced = rbind(trainingdata %>% filter(Humpback == 0),
                                   )
 
 table(trainingdatabalanced$Humpback)
-```
-
-### Creating Testing Data
-
-
-```{r}
-testingdata = add_observations(whaledf = data,
-                                start_time = 1000,
-                                end_time = 1200,
-                                num_time_steps=20, 
-                                numcep = 12,
-                                step_size = 0.05)
-
-table(testingdata$Humpback)
-
-```
-
-### Creating Cross-Validation Folds
-
-```{r}
-training_cvs = vfold_cv(trainingdatabalanced, v = 10)
-
 ```
 
 
@@ -178,47 +167,10 @@ collect_metrics(rffitcv_1)
 
 
 
-### Predicting on Testing Data Using Evaluation Windows
-
-```{r}
-
-rfpredictions = testingdata %>%
-  mutate(
-    preds = predict(rffit_1, testingdata)$.pred_class
-  ) %>% dplyr::select(Time_Start, Time_End, preds, Humpback)
-
-table(rfpredictions$preds)
-
-table(rfpredictions$Humpback)
-
-rfwindowpredictions = testing_eval_windows(rfpredictions, length = 10, threshold = 0.5)
-
-rfwindowpredictions
-
-rfwindowpredictions %>%
-  conf_mat(truth = Humpback,
-           estimate = prediction)
-
-rfwindowpredictions %>% 
-  recall(truth = Humpback, estimate = prediction, event_level = 'second')
-```
-
-
-### Predicting on Individual Whale Calls
-
-
-```{r}
-manual_annotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
-
-custom_denominator(manual_annotations, rfpredictions,
-                   pred_start_time = min(rfpredictions$Time_Start), 
-                   pred_end_time = max(rfpredictions$Time_End), 
-                   threshold = 0.5)
-```
 
 
 
-### Create Output For Raven Visualization
+## Creating Output for Raven Visualization
 
 ```{r}
 
