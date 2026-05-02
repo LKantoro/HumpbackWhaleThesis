@@ -56,7 +56,7 @@ source(here::here("ContextWindows", "ContextWindowFunction.R"))
 
 trainingdata = add_observations_linear(whaledf = data,
                                 start_time = 0,
-                                end_time =  500,
+                                end_time = 7199.9,
                                 num_time_steps = 1, 
                                 numcep = 13,
                                 step_size = 0.1)
@@ -73,8 +73,8 @@ trainingdata
 
 ```{r}
 grid <- expand.grid(
-  min_n = c(25),
-  trees = c(1500)
+  min_n = c(100),
+  trees = c(750)
 ) %>%
   as_tibble()
 
