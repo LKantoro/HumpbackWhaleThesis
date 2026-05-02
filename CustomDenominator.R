@@ -18,16 +18,18 @@
 # for the overall prediction to be 1
 
 
-custom_denominator = function(manual_annotations, predictions, 
-                              pred_start_time, pred_end_time, threshold){
+custom_denominator = function(manual_annotations, predictions, threshold){
   # pseudocode:
   outputdf = data.frame()
+  
+  pred_start_time = min(predictions$Time_Start)
+  pred_end_time = max(predictions$Time_End)
   
   # formatting and filtering annotation dataset for easier coding
   manual_annotations = manual_annotations %>% 
     rename(Begin_Time = 'Begin Time (s)', End_Time = 'End Time (s)') %>%
     filter(Begin_Time >= pred_start_time & End_Time <= pred_end_time)
-
+  
   # for each annotated range
   for (i in c(1:nrow(manual_annotations))){
     
@@ -41,10 +43,10 @@ custom_denominator = function(manual_annotations, predictions,
     # calculate the proportion of 1s
     proportion = predictions %>% filter(Time_Start < end_time_annotated &
                                 start_time_annotated < Time_End) %>% 
-      summarise(proportion = sum(preds == 1) / n()) %>% pull(proportion)
+      summarise(proportion = sum(prediction == 1) / n()) %>% pull(proportion)
     
     # predicting a whale if the proportion is greater than the threshold
-    prediction = as.numeric(proportion >= threshold)
+    prediction = as.numeric(proportion > threshold)
     
     row = c("Time_Start" = start_time_annotated, 
             "Time_End" = end_time_annotated, 
@@ -61,7 +63,54 @@ custom_denominator = function(manual_annotations, predictions,
 }
 
 
+
+
+custom_denominator_efficient <- function(manual_annotations, predictions, threshold) {
   
+  pred_start_time = min(predictions$Time_Start)
+  pred_end_time = max(predictions$Time_End)
+  
+  # rename once
+  manual_annotations <- manual_annotations %>%
+    rename(Begin_Time = `Begin Time (s)`,
+           End_Time   = `End Time (s)`) %>%
+    filter(Begin_Time >= pred_start_time & End_Time <= pred_end_time)
+  
+  n_ann <- nrow(manual_annotations)
+  
+  # preallocate list
+  output_list <- vector("list", n_ann)
+  
+  # loop through annotation rows
+  for (i in seq_len(n_ann)) {
+    
+    start_time_annotated <- manual_annotations$Begin_Time[i]
+    end_time_annotated   <- manual_annotations$End_Time[i]
+    
+    # overlapping prediction windows
+    overlapping_preds <- predictions %>%
+      filter(Time_Start < end_time_annotated,
+             start_time_annotated < Time_End)
+    
+    proportion <- overlapping_preds %>%
+      summarise(proportion = sum(prediction == 1) / n()) %>%
+      pull(proportion)
+    
+    prediction <- as.numeric(proportion > threshold)
+    
+    output_list[[i]] <- data.frame(
+      Time_Start = start_time_annotated,
+      Time_End   = end_time_annotated,
+      proportion = proportion,
+      prediction = prediction
+    )
+  }
+  
+  # bind once at end
+  outputdf <- do.call(rbind, output_list)
+  
+  return(outputdf)
+}
   
 
 
