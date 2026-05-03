@@ -151,12 +151,12 @@ table(predictionsdf$preds)
 ## Creating Aggregation Grid
 
 ```{r}
-agg_window_length = c(1, 2, 4, 6, 8)
-agg_window_threshold = seq(0, 0.5, by = 0.05)
+# agg_window_length = c(1, 2, 4, 6, 8)
+# agg_window_threshold = seq(0, 0.5, by = 0.05)
 
-# 
-# agg_window_length = c(2)
-# agg_window_threshold = c(0.5)
+ 
+agg_window_length = c(1)
+agg_window_threshold = c(0.5)
 
 ```
 
@@ -364,7 +364,7 @@ manual_annotations_evaluation
 
 
 sorted_df_type2 %>%
-  ggplot(aes(x = recall, y = precision, color = as.factor(agg_window_length), group = as.factor(agg_window_length))) +
+  ggplot(aes(x = Recall, y = Precision, color = as.factor(agg_window_length), group = as.factor(agg_window_length))) +
   geom_line() +
   geom_point() +
   scale_color_manual(values = c("red", "blue", "green", "yellow", "orange", "purple")) +
@@ -384,7 +384,7 @@ Aggregated Windows",
 
 
 ```{r}
-agg_window_length_best = 2
+agg_window_length_best = 1
 agg_window_threshold_best = 0.5
 
 rolling_average_best <- rolling_avg_df(

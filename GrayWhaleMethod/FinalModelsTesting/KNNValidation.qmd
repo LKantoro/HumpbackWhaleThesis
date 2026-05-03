@@ -146,12 +146,12 @@ table(predictionsdf$preds)
 ## Creating Aggregation Grid
 
 ```{r}
-agg_window_length = c(1, 2, 4, 6, 8)
-agg_window_threshold = seq(0.05, 0.5, by = 0.05)
+# agg_window_length = c(1, 2, 4, 6, 8)
+# agg_window_threshold = seq(0.00, 0.5, by = 0.05)
 
-# 
-# agg_window_length = c(2)
-# agg_window_threshold = c(0.25, 0.5)
+# for individual rows
+agg_window_length = c(1)
+agg_window_threshold = c(0.5)
 
 ```
 
@@ -184,7 +184,7 @@ whale_call_metrics_type1 <- function(row, predictionsdf) {
     agg_window_threshold
   )
   
-  #print(rolling_average)
+  print(rolling_average)
     
   if (nrow(rolling_average %>% filter(rolling_avg_prediction == 1)) == 0) {
     knneval_recall <- 0
@@ -377,7 +377,7 @@ Aggregated Windows",
 
 
 ```{r}
-agg_window_length_best = 2
+agg_window_length_best = 1
 agg_window_threshold_best = 0.5
 
 rolling_average_best <- rolling_avg_df(
@@ -394,4 +394,32 @@ prediction_windows_best <- creating_prediction_windows(
 )
 
 prediction_windows_best
+```
+
+## Saving Output To Raven
+
+
+```{r}
+
+raven_output = function(windows){
+  print(windows)
+  #creating dummy low and high frequencies
+  windows = windows %>% 
+    rename("Begin Time (s)" = start_time, "End Time (s)" = end_time) %>% 
+    mutate("Low Freq (Hz)" = 0, "High Freq (Hz)" = 2000) %>% 
+    dplyr::select(c("Begin Time (s)", "End Time (s)", 
+                    "Low Freq (Hz)", "High Freq (Hz)"))
+  
+  
+  #create output 
+  write.table(windows, 
+              paste0("graywhalemethodknnevalwindowpreds", 
+                     "len", agg_window_length_best, 
+                     "thres", agg_window_threshold_best,
+                     ".txt"), 
+              sep = "\t", row.names = FALSE, quote = FALSE)
+}
+
+raven_output(windows = prediction_windows_best)
+
 ```
