@@ -18,7 +18,7 @@ library(tidyverse)
 library(tidymodels)
 library(discrim)
 library(vctrs)
-
+library(tictoc)
 ```
 
 
@@ -27,7 +27,7 @@ library(vctrs)
 ```{r}
 #source(here::here("EvaluationWindows", "EvaluationWindowFunctions.R"))
 #source(here::here("CustomDenominator.R"))
-source(here::here("ContextWindows", "AIContextWindowFunction.R"))
+source(here::here("ContextWindows", "ContextWindowFunction.R"))
 
 ```
 
@@ -38,6 +38,21 @@ source(here::here("ContextWindows", "AIContextWindowFunction.R"))
 set.seed(656)
 ```
 
+## Loading in Data
+
+```{r}
+# data = read.csv(here::here("TrainingSet", "AWnooverlap.csv")) %>%
+#   mutate(Humpback = as.factor(Humpback))
+
+data = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
+  mutate(Humpback = as.factor(Humpback))
+
+
+data_nooverlap = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
+  mutate(Humpback = as.factor(Humpback)) %>% filter(X %% 2 == 1)
+
+#annotatedMelAW %>% arrange(desc(Time_End))
+```
 
 
 ## Creating Training Data
@@ -47,14 +62,16 @@ set.seed(656)
 
 
 
-trainingdata = add_observations_linear(whaledf = data,
-                                start_time = 4000,
-                                end_time = 4500,
-                                num_time_steps = num_time_steps, 
+
+trainingdata = add_observations_linear_tolerance(whaledf = data,
+                                start_time = 0,
+                                end_time = 2000,
+                                num_time_steps = 2, 
                                 numcep = 12,
-                                step_size = 0.1,
+                                step_size = 0.05,
                                 jump_size = 0.05)
 
+trainingdata %>% select(Time_Start, Time_End, Humpback)
 
 
 
@@ -103,69 +120,101 @@ table(trainingdatabalanced$Humpback)
 ```
 
 
+## Not Saving Predictions
 
-
-
-## Random Forest
-
-### Creating RF Model
 
 ```{r}
-library(randomForest)
-
-#creating model
-rfmod_1 <- rand_forest(min_n = 100, trees = 2000,
-                       mtry = floor(sqrt(ncol(trainingdatabalanced) - 3))) %>%
-  set_engine("ranger") %>%               
-  set_mode("classification")            
-
-#creating recipe
-rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdatabalanced) %>%
-  step_rm(Time_Start, Time_End) %>%
-  step_normalize(all_numeric_predictors()) %>%
-  step_dummy(all_factor_predictors())
-
-
-#creating workflow
-rfworkflow_1 <- workflow() %>%
-  add_model(rfmod_1) %>%
-  add_recipe(rfrecipe_1)
-
-
-
-#fitting model
-rffit_1 <- rfworkflow_1 %>% fit(data = trainingdatabalanced)
-
-
-rffit_1 |>
-  extract_fit_engine()
-
-print(rfmod_1)
+rf_tuning_cv_multi_nopreds <- function(mtry_values = floor(sqrt(ncol(trainingdata) - 3)), 
+                                       trees_values = 500, 
+                                       min_n_values = 50) {
+  tic("My Function Timer")
+  
+  training_cvs <- vfold_cv(trainingdata, v = 5)
+  
+  # custom metric set
+  my_metrics <- metric_set(
+    precision,
+    recall,
+    f_meas
+  )
+  
+  # model
+  rfmod <- rand_forest(
+    mtry = tune(),
+    trees = tune(),
+    min_n = tune()
+  ) %>%
+    set_engine("ranger") %>%
+    set_mode("classification")
+  
+  # recipe
+  rfrecipe <- recipe(Humpback ~ ., data = trainingdata) %>%
+    step_rm(Time_Start, Time_End) %>%
+    step_normalize(all_numeric_predictors()) %>%
+    step_dummy(all_factor_predictors())
+  
+  # workflow
+  rfworkflow <- workflow() %>%
+    add_model(rfmod) %>%
+    add_recipe(rfrecipe)
+  
+  # grid
+  rf_grid <- expand_grid(
+    mtry = mtry_values,
+    trees = trees_values,
+    min_n = min_n_values
+  )
+  
+  # tune
+  rf_tuned <- rfworkflow %>%
+    tune_grid(
+      resamples = training_cvs,
+      grid = rf_grid,
+      metrics = my_metrics,
+      control = control_grid(save_pred = FALSE)
+    )
+  
+  # collect metrics
+  metrics_f1 <- collect_metrics(rf_tuned)
+  
+  toc()
+  
+  return(list(
+    mtry_values = mtry_values,
+    trees_values = trees_values,
+    min_n_values = min_n_values,
+    tuning_results = rf_tuned,
+    metrics_f1 = metrics_f1
+  ))
+}
 ```
 
 
-
-### Cross Validating
-
 ```{r}
-trainingdatabalanced %>%
+
+
+
+results2 <- rf_tuning_cv_multi_nopreds(mtry_values = floor(sqrt(ncol(trainingdata)) - 3),
+                                       trees_values = c(500,1000),
+                                       min_n_values = 50)
+
+metric_set = results2$metrics_f1 %>% select(mtry, trees, min_n, .metric, mean) %>%
+  pivot_wider(
+    names_from = .metric,
+    values_from = mean) %>% select(mtry, trees, min_n, recall, precision, f_meas) %>%
+  rename(F1 = f_meas)# precision, recall, F1
+
+
+metric_set %>% # F2 scores
   mutate(
-    rfpreds = predict(rffit_1, trainingdatabalanced)$.pred_class
-  ) %>% dplyr::select(Time_Start, Time_End, rfpreds, Humpback)
-
-
-
-rffitcv_1 = rfworkflow_1 %>% fit_resamples(training_cvs,
-                metrics = metric_set(accuracy, roc_auc, precision, specificity, recall)
-                )
-collect_metrics(rffitcv_1)
-
+    F2 = ifelse(
+    is.na(precision) | is.na(recall) | (recall + 4*precision) == 0,
+    NA_real_,
+    (5 * precision * recall)/(recall + 4*precision)
+    )
+    )
 
 ```
-
-
-
-
 
 
 

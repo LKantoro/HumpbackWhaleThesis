@@ -41,61 +41,39 @@ set.seed(444)
 ## Loading In Data
 
 ```{r}
-data = read.csv(here::here("TrainingSet", "AWnooverlap.csv")) %>%
-  mutate(Humpback = as.factor(Humpback))
-
-# data = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
+# data = read.csv(here::here("TrainingSet", "AWnooverlap.csv")) %>%
 #   mutate(Humpback = as.factor(Humpback))
 
+data = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
+  mutate(Humpback = as.factor(Humpback))
+
+
+data_nooverlap = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
+  mutate(Humpback = as.factor(Humpback)) %>% filter(X %% 2 == 1)
 
 #annotatedMelAW %>% arrange(desc(Time_End))
 ```
 
-## Entering Parameters
 
-```{r}
-
-
-
-grid = vec_expand_grid(neighbors_param = c(15, 100))
-
-num_time_steps = 20
-
-agg_window_length = c(2)
-#agg_window_threshold = seq(0, 1, by = 0.05)
-
-#agg_window_length = c(2)
-agg_window_threshold = c(0.5)
-
-```
 
 ## Creating Training Data
 
 ```{r}
 
+# start - end is step_size*num_time_steps
 
+# start - start is jump_size
 
-trainingdata = add_observations_linear(whaledf = data,
+trainingdata = add_observations_linear_tolerance(whaledf = data_nooverlap,
                                 start_time = 0,
-                                end_time = 7200,
+                                end_time = 7199.9,
                                 num_time_steps = num_time_steps, 
                                 numcep = 12,
                                 step_size = 0.1,
-                                jump_size = 0.2)
+                                jump_size = 0.1)
 
 trainingdata %>% select(Time_Start, Time_End, Humpback)
 
-
-trainingdata2 = add_observations_linear_tolerance(whaledf = data,
-                                start_time = 0,
-                                end_time = 7200,
-                                num_time_steps = num_time_steps, 
-                                numcep = 12,
-                                step_size = 0.1,
-                                jump_size = 0.5)
-
-
-trainingdata2 %>% select(Time_Start, Time_End, Humpback)
 
 
 table(trainingdata$Humpback)
@@ -106,7 +84,7 @@ trainingdata$Humpback <- relevel(trainingdata$Humpback, ref = 1)
 
 
 
-## Tuning
+## Saving Predictions
 
 ```{r}
 knn_tuning_cv = function(neighbors_param){
@@ -185,6 +163,9 @@ table(results[[2]]$knncvpredictions$preds)
 
 ```
 
+
+## Not Saving Predictions
+
 ```{r}
 knn_tuning_cv_multi_nopreds <- function(k_values) {
   tic("My Function Timer")
@@ -243,11 +224,29 @@ knn_tuning_cv_multi_nopreds <- function(k_values) {
   ))
 }
 
+```
 
-results <- knn_tuning_cv_multi_nopreds(c(15, 100))
+```{r}
+results2 <- knn_tuning_cv_multi_nopreds(c(100))
 
-results$metrics_f1   # precision, recall, F1
-results$metrics_f2   # F2 scores
+metric_set = results2$metrics_f1 %>% select(neighbors, .metric, mean) %>%
+  pivot_wider(
+    names_from = .metric,
+    values_from = mean) %>% select(neighbors, recall, precision, f_meas) %>%
+  rename(F1 = f_meas)# precision, recall, F1
+
+
+metric_set %>% 
+  mutate(
+    F2 = ifelse(
+    is.na(precision) | is.na(recall) | (recall + 4*precision) == 0,
+    NA_real_,
+    (5 * precision * recall)/(recall + 4*precision)
+    )
+    )
+
+
+results2$metrics_f2   # F2 scores
 ```
 
 
@@ -324,185 +323,7 @@ sorted_df = final_df %>% data.frame() %>% arrange(desc(F2))
 sorted_df
 ```
 
-## DONT USE
 
-
-```{r}
-
-source(here::here("EvaluationWindows", "NEWEvaluationWindowFunctions.R"))
-
-# i is a input of a dataframe (knncvpredictions) and number of neighbors
-# lengths is a number
-# thresholds is a number
-
-calc_metrics = mapply(function(i, lengths, thresholds){
-  res = results[[i]]
-  
-  neighbors = res$neighbors_param
-
-  # rfcvwindowpredictions = testing_eval_windows(res$rfcvpredictions,
-  #                                               length = lengths,
-  #                                               threshold = thresholds)
-  
-  
-  knncvwindowpredictions = testing_eval_windows_linear(res$knncvpredictions,
-                                                length = lengths,
-                                                threshold = thresholds)
-
-  #print(rfcvwindowpredictions)
-  
-  
-  # precision check
-  
-  if (nrow(knncvwindowpredictions %>% filter(prediction == 1)) == 0){
-    knncv_recall = 0
-    knncv_precision = NA
-
-    }
-  
-  else if (nrow(knncvwindowpredictions %>% filter(prediction == 0)) == 0){
-    knncv_recall = 1
-    knncv_precision = (nrow(knncvwindowpredictions %>% filter(Humpback == 1)))/nrow(knncvwindowpredictions %>% filter(prediction == 1))
-
-    }
-  
-  # recall check
-  
-  else if (nrow(knncvwindowpredictions %>% filter(Humpback == 1))== 0){
-    knncv_recall = NA
-    knncv_precision = 0
-
-    } else {
-    
-      knncv_recall = knncvwindowpredictions %>% recall(truth = Humpback, 
-                                 estimate = prediction, 
-                                 event_level = 'second') %>%
-            select(.estimate) %>% pull()
-      
-      knncv_precision = knncvwindowpredictions %>% precision(truth = Humpback, 
-                                 estimate = prediction, 
-                                 event_level = 'second') %>%
-            select(.estimate) %>% pull()
-      
-      
-      
-      
-    }
-  knncv_f1 = (2*knncv_recall*knncv_precision)/(knncv_recall + knncv_precision)
-      
-  knncv_f2 = (5*knncv_recall*knncv_precision)/(knncv_recall + (4*knncv_precision))
-  
-  return(c("neighbors_param" = neighbors,
-  "agg_window_length" = lengths, 
-  "agg_window_threshold" = thresholds, 
-  "Recall" = knncv_recall, 
-  "Precision" = knncv_precision,
-  "F1" = knncv_f1,
-  "F2" = knncv_f2))
-  
-}, grid2$i, grid2$lengths, grid2$thresholds, SIMPLIFY = FALSE)
-
-
-final_df <- do.call(rbind, calc_metrics)
-
-final_df %>% data.frame() %>% arrange(desc(Recall))
-
-sorted_df = final_df %>% data.frame() %>% arrange(desc(F2))
-
-sorted_df
-```
-
-
-```{r}
-library(dplyr)
-library(purrr)
-library(yardstick)
-
-calc_metrics_fast <- function(grid2, results) {
-  
-  # cache for testing_eval_windows_linear outputs
-  window_cache <- new.env(parent = emptyenv())
-  
-  get_window_predictions <- function(i, lengths, thresholds) {
-    key <- paste(i, lengths, thresholds, sep = "_")
-    
-    if (!exists(key, envir = window_cache, inherits = FALSE)) {
-      res <- results[[i]]
-      window_cache[[key]] <- testing_eval_windows_linear(
-        res$knncvpredictions,
-        length = lengths,
-        threshold = thresholds
-      )
-    }
-    
-    window_cache[[key]]
-  }
-  
-  calc_one <- function(i, lengths, thresholds) {
-    res <- results[[i]]
-    neighbors <- res$neighbors_param
-    
-    knncvwindowpredictions <- get_window_predictions(i, lengths, thresholds)
-    
-    n_pred_1 <- sum(knncvwindowpredictions$prediction == 1)
-    n_pred_0 <- sum(knncvwindowpredictions$prediction == 0)
-    n_true_1 <- sum(knncvwindowpredictions$Humpback == 1)
-    
-    if (n_pred_1 == 0) {
-      knncv_recall <- 0
-      knncv_precision <- NA_real_
-      
-    } else if (n_pred_0 == 0) {
-      knncv_recall <- 1
-      knncv_precision <- n_true_1 / n_pred_1
-      
-    } else if (n_true_1 == 0) {
-      knncv_recall <- NA_real_
-      knncv_precision <- 0
-      
-    } else {
-      knncv_recall <- knncvwindowpredictions %>%
-        recall(truth = Humpback, estimate = prediction, event_level = "second") %>%
-        pull(.estimate)
-      
-      knncv_precision <- knncvwindowpredictions %>%
-        precision(truth = Humpback, estimate = prediction, event_level = "second") %>%
-        pull(.estimate)
-    }
-    
-    knncv_f1 <- (2 * knncv_recall * knncv_precision) / (knncv_recall + knncv_precision)
-    knncv_f2 <- (5 * knncv_recall * knncv_precision) / (knncv_recall + 4 * knncv_precision)
-    
-    tibble(
-      neighbors_param = neighbors,
-      agg_window_length = lengths,
-      agg_window_threshold = thresholds,
-      Recall = knncv_recall,
-      Precision = knncv_precision,
-      F1 = knncv_f1,
-      F2 = knncv_f2
-    )
-  }
-  
-  bind_rows(
-    pmap(
-      list(grid2$i, grid2$lengths, grid2$thresholds),
-      calc_one
-    )
-  )
-}
-
-final_df2 <- calc_metrics_fast(grid2, results)
-sorted_df2 <- final_df2 %>% arrange(desc(F2)) %>% data.frame()
-sorted_df2
-
-all.equal(sorted_df, sorted_df2)
-list(sorted_df, sorted_df2)
-
-class(data.frame(sorted_df2))
-```
-
-## END OF DONT USE
 
 ## PR Curve
 
