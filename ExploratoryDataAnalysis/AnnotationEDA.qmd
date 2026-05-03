@@ -18,7 +18,7 @@ library(readxl)
 
 
 ```{r}
-manualannotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
+manualannotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
 
 colnames(manualannotations)
 ```
@@ -33,6 +33,12 @@ manualannotations = manualannotations %>% rename(begin_time = "Begin Time (s)",
                                                  low_freq = "Low Freq (Hz)",
                                                  high_freq = "High Freq (Hz)")
 
+
+
+manualannotations = manualannotations %>%
+  mutate(diff = lead(begin_time) - end_time)
+
+
 ```
 
 
@@ -41,14 +47,11 @@ manualannotations = manualannotations %>% rename(begin_time = "Begin Time (s)",
 
 
 ```{r}
-manualannotations %>% ggplot(aes(x = callduration)) + geom_histogram(bins = 31) +
-  ggtitle("Histogram of Whale Call Durations")
-
 
 manualannotations %>%
   ggplot(aes(x = callduration)) + 
   ggtitle("Distribution of Humpback Whale Call Durations") + 
-  labs(x = "Humpback Whale Call Duration (seconds)", y = "Count") +
+  labs(x = "Duration (seconds)", y = "Count") +
   geom_histogram(binwidth = 0.25, fill = "blue", color = "black") +
   scale_x_continuous(breaks = 0:10) +
   theme_bw() + 
@@ -58,11 +61,48 @@ manualannotations %>%
 ```
 
 
+## Between_Whale Call Length Summary
+
+
+```{r}
+manualannotations %>% ggplot(aes(x = diff)) + geom_histogram(bins = 31) +
+  ggtitle("Histogram of Whale Call Durations")
+
+
+abc = manualannotations %>% pull(diff)
+
+sort(abc, decreasing = T)
+
+
+
+manualannotations %>% filter(diff <= 30) %>% 
+  ggplot(aes(x = diff)) + 
+  ggtitle("Duration Between Humpback Whale Calls (seconds)") + 
+  labs(x = "Duration (seconds)", y = "Count") +
+  geom_histogram(binwidth = 1, fill = "blue", color = "black") +
+  scale_x_continuous(breaks = seq(-4, 30, by = 2)) +
+  theme_bw() + 
+  theme(panel.grid.minor = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        axis.ticks = element_line(color = "black"))
+```
 
 
 
 ## Frequency Summary
 
+```{r}
+manualannotations %>% 
+  ggplot(aes(x = high_freq)) + 
+  ggtitle("Highest Frequency of Humpback Whale Calls") + 
+  labs(x = "Frequency (Hz)", y = "Count") +
+  geom_histogram(binwidth = 20, fill = "blue", color = "black") +
+  scale_x_continuous(breaks = seq(0, 2000, by = 100)) +
+  theme_bw() + 
+  theme(panel.grid.minor = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        axis.ticks = element_line(color = "black"))
+```
 
 
 ```{r}
