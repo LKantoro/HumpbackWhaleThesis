@@ -67,7 +67,7 @@ trainingdata = add_observations_linear(whaledf = data,
 ## Creating Tuning Grid
 
 ```{r}
-grid = vec_expand_grid(neighbors_param = c(1))
+grid = vec_expand_grid(neighbors_param = c(40, 45, 47, 52, 55, 60))
 
 ```
 
