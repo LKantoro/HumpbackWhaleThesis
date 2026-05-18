@@ -1,0 +1,40 @@
+---
+title: "Humpback Whale Vocalization Detector Using Machine Learning Models"
+output: yaml
+---
+
+
+### California Polytechnic State Univeristy, 2025-2026 Thesis Project
+
+#### Author
+
+Lucas Kantorowski
+
+### Project Overview
+This project develops machine learning models to automatically detect and classify gray whale vocalizations from passive acoustic monitoring data collected off California's Central Coast. Using hydrophone recordings from Avila Bay, we apply signal processing techniques and machine learning to identify whale calls in audio data.
+
+### Dataset
+- **Source**: Recorder deployed in Monterey Bay, California
+- **Collection Period**: September 2023
+- **Data Volume**: 3 hour WAV File with manual annotations for training and validation
+- **Frequency Range**: Filtered to 0-2000 Hz to match typical call frequency range
+
+### Technical Approach
+
+#### Audio Transformations
+
+**Mel-Frequency Cepstral Coefficients (MFCC)**
+  - 12 coefficients optimized for acoustic pattern recognition
+  - Mimics human auditory perception
+
+#### Machine Learning Models
+- **Random Forest**: Great for recall
+- **K-Nearest Neighbors (KNN)**: Great for precision
+
+
+### Acknowledgments
+- Cal Poly Professors
+  - Maddie Schroth
+  - Dr. Kelly Bodwin
+- Cal Poly Marine Science Students
+
