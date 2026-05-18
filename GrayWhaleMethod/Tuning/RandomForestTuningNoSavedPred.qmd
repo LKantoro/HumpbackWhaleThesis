@@ -1,0 +1,204 @@
+---
+title: "Gray Whale Random Forest Tuning"
+format: html
+---
+
+
+## Loading Libraries
+
+```{r}
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(ranger)
+library(tidyverse)
+library(tidymodels)
+library(discrim)
+library(vctrs)
+library(PRROC)
+library(tictoc)
+```
+
+
+
+
+## Loading In Data
+
+```{r}
+data = read.csv(here::here("GrayWhaleMethod", "TrainingSet", "GrayWhaleTrainingData.csv")) %>%
+  mutate(Humpback = as.factor(Humpback))
+
+table(data$Humpback)
+
+max(data$Time_End)
+#annotatedMelAW %>% arrange(desc(Time_End))
+```
+
+
+## Sourcing
+
+
+```{r}
+source(here::here("ContextWindows", "ContextWindowFunction.R"))
+
+```
+
+
+
+
+
+## Creating Training Data
+
+```{r}
+
+trainingdata = add_observations_linear(whaledf = data,
+                                start_time = 0,
+                                end_time = 7199.9,
+                                num_time_steps = 1, 
+                                numcep = 13,
+                                step_size = 0.1)
+
+
+trainingdata
+
+#manual_annotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
+```
+
+
+
+## Creating Tuning Grid
+
+```{r}
+grid <- expand.grid(
+  min_n = c(100),
+  trees = c(750)
+) %>%
+  as_tibble()
+
+```
+
+
+
+## Setting Seed for Consistent Randomization
+
+```{r}
+set.seed(618)
+```
+
+
+## Tuning
+
+
+
+```{r}
+rf_tuning_cv_multi <- function(grid) {
+  tic("RF tuning timer")
+  
+  training_cvs <- vfold_cv(trainingdata, v = 5)
+  
+  # custom metrics (F1 included here)
+  my_metrics <- metric_set(precision, recall, f_meas)
+  
+  # predictor count for mtry
+  p <- trainingdata %>%
+    select(-Humpback, -Time_Start, -Time_End) %>%
+    ncol()
+  
+  # model
+  rfmod <- rand_forest(
+    min_n = tune(),
+    trees = tune(),
+    mtry = floor(sqrt(p))
+  ) %>%
+    set_engine("ranger") %>%
+    set_mode("classification")
+  
+  # recipe (minimal for RF)
+  rfrecipe <- recipe(Humpback ~ ., data = trainingdata) %>%
+    step_rm(Time_Start, Time_End)
+  
+  rfworkflow <- workflow() %>%
+    add_model(rfmod) %>%
+    add_recipe(rfrecipe)
+  
+  # tuning
+  rf_tuned <- rfworkflow %>%
+    tune_grid(
+      resamples = training_cvs,
+      grid = grid,
+      metrics = my_metrics,
+      control = control_grid(save_pred = FALSE)
+    )
+  
+  # F1 (default from f_meas)
+  metrics_f1 = collect_metrics(rf_tuned)
+  
+  
+
+  
+  toc()
+  
+  return(list(
+    tuning_results = rf_tuned,
+    metrics_f1 = metrics_f1#,
+    #metrics_f2 = metrics_f2
+  ))
+}
+```
+
+
+```{r}
+
+
+results <- rf_tuning_cv_multi(grid)
+
+# precision, recall, F1, and F2
+
+metric_set = results$metrics_f1 %>% select(trees, min_n, .metric, mean) %>%
+  pivot_wider(
+    names_from = .metric,
+    values_from = mean
+  ) %>% select(trees, min_n, recall, precision, f_meas) %>%
+  rename(F1 = f_meas)
+
+# results, with calculated F2 score
+metric_set %>%
+  mutate(
+    F2 = ifelse(
+      is.na(precision) | is.na(recall) | (recall + 4 * precision) == 0,
+      NA_real_,
+      (5 * precision * recall) / (recall + 4 * precision)
+    )
+  )
+```
+
+
+
+## PR Curve
+
+
+```{r}
+
+
+
+sorted_df %>%
+  ggplot(aes(x = Recall, y = Precision)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = c("red", "blue", "green", "yellow")) +
+  scale_x_continuous(limits = c(0, 1)) +
+  scale_y_continuous(limits = c(0.5, 1)) +
+  labs(
+    title = "Precision-Recall Curve on Window Predictions",
+    x = "Recall",
+    y = "Precision",
+    color = "Window Length"
+  ) +
+  theme_minimal()
+```
+
+
+

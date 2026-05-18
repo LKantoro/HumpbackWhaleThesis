@@ -1,0 +1,242 @@
+---
+title: "Gray Whale Random Forest Tuning"
+format: html
+---
+
+
+## Loading Libraries
+
+```{r}
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(ranger)
+library(tidyverse)
+library(tidymodels)
+library(discrim)
+library(vctrs)
+library(PRROC)
+```
+
+
+
+
+## Loading In Data
+
+```{r}
+data = read.csv(here::here("GrayWhaleMethod", "TrainingSet", "GrayWhaleTrainingData.csv")) %>%
+  mutate(Humpback = as.factor(Humpback))
+
+table(data$Humpback)
+
+max(data$Time_End)
+#annotatedMelAW %>% arrange(desc(Time_End))
+```
+
+
+## Sourcing
+
+
+```{r}
+source(here::here("ContextWindows", "ContextWindowFunction.R"))
+
+```
+
+
+
+
+
+## Creating Training Data
+
+```{r}
+
+trainingdata = add_observations_linear(whaledf = data,
+                                start_time = 0,
+                                end_time =  500,
+                                num_time_steps = 1, 
+                                numcep = 13,
+                                step_size = 0.1)
+
+
+trainingdata
+
+#manual_annotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
+```
+
+
+
+## Creating Tuning Grid
+
+```{r}
+grid = vec_expand_grid(min_n_param = c(25),
+  trees_param = c(1500))
+
+
+```
+
+
+
+## Setting Seed for Consistent Randomization
+
+```{r}
+set.seed(618)
+```
+
+
+
+## Tuning
+
+```{r}
+
+rf_tuning_cv = function(min_n_param, trees_param){
+  
+  # print(c(row["min_n_param"], row["trees_param"]))
+  
+  training_cvs = vfold_cv(trainingdata, v = 5)
+  
+  #creating model
+  rfmod_1 <- rand_forest(min_n = min_n_param, trees = trees_param,
+                         mtry = floor(sqrt(ncol(trainingdata) - 3))) %>%
+    set_engine("ranger") %>%               
+    set_mode("classification")            
+  
+  #creating recipe
+  rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdata) %>%
+    step_rm(Time_Start, Time_End) %>%
+    step_normalize(all_numeric_predictors()) %>%
+    step_dummy(all_factor_predictors())
+  
+  
+  #creating workflow
+  rfworkflow_1 <- workflow() %>%
+    add_model(rfmod_1) %>%
+    add_recipe(rfrecipe_1)
+  
+  # fitting model and saving cross validated predictions
+  rffit_1 = rfworkflow_1 %>% 
+    fit_resamples(resamples = training_cvs, 
+                  control = control_resamples(save_pred = TRUE)) 
+  
+  predictions <- collect_predictions(rffit_1)
+  #print(predictions)
+  predictions = predictions %>% arrange(.row) %>%
+    select(.row, .pred_class, Humpback)
+  # print(preds)
+  
+  rfcvpredictions = predictions %>%
+  left_join(
+    trainingdata %>%
+      mutate(.row = row_number()) %>%
+      select(.row, Time_Start, Time_End),
+    by = ".row") %>% rename(preds = .pred_class)
+  
+    return(list(min_n_param = min_n_param,
+                trees_param = trees_param,
+                rfcvpredictions = rfcvpredictions))
+}
+```
+
+```{r}
+
+
+
+
+results <- mapply(
+  rf_tuning_cv,
+  grid$min_n_param,
+  grid$trees_param,
+  SIMPLIFY = FALSE
+)
+
+# results
+```
+
+
+
+
+## Calculating Metrics
+
+```{r}
+
+
+# i is a input of a dataframe (rfcvpredictions) and number of neighbors
+
+calc_metrics <- lapply(results, function(res) {
+  min_n = res$min_n_param
+  trees <- res$trees_param
+  predictionsdf <- res$rfcvpredictions
+  
+  if (nrow(predictionsdf %>% filter(preds == "1")) == 0) {
+    rfcv_recall <- 0
+    rfcv_precision <- NA
+    
+  } else if (nrow(predictionsdf %>% filter(preds == "0")) == 0) {
+    rfcv_recall <- 1
+    rfcv_precision <- nrow(predictionsdf %>% filter(Humpback == "1")) /
+      nrow(predictionsdf %>% filter(preds == "1"))
+    
+  } else if (nrow(predictionsdf %>% filter(Humpback == "1")) == 0) {
+    rfcv_recall <- NA
+    rfcv_precision <- 0
+    
+  } else {
+    rfcv_recall <- predictionsdf %>%
+      recall(truth = Humpback, estimate = preds, event_level = "second") %>%
+      pull(.estimate)
+    
+    rfcv_precision <- predictionsdf %>%
+      precision(truth = Humpback, estimate = preds, event_level = "second") %>%
+      pull(.estimate)
+  }
+  
+  rfcv_f1 <- (2 * rfcv_recall * rfcv_precision) / (rfcv_recall + rfcv_precision)
+  rfcv_f2 <- (5 * rfcv_recall * rfcv_precision) / (rfcv_recall + 4 * rfcv_precision)
+  
+  data.frame(
+    min_n_param = min_n,
+    trees_param = trees,
+    Recall = rfcv_recall,
+    Precision = rfcv_precision,
+    F1 = rfcv_f1,
+    F2 = rfcv_f2
+  )
+})
+
+final_df <- do.call(rbind, calc_metrics)
+
+final_df %>% data.frame() %>% arrange(desc(Recall))
+
+sorted_df = final_df %>% data.frame() %>% arrange(desc(F2))
+
+sorted_df
+```
+
+
+## PR Curve
+
+
+```{r}
+
+
+
+sorted_df %>%
+  ggplot(aes(x = Recall, y = Precision)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = c("red", "blue", "green", "yellow")) +
+  scale_x_continuous(limits = c(0, 1)) +
+  scale_y_continuous(limits = c(0.5, 1)) +
+  labs(
+    title = "Precision-Recall Curve on Window Predictions",
+    x = "Recall",
+    y = "Precision",
+    color = "Window Length"
+  ) +
+  theme_minimal()
+```
+
+
+

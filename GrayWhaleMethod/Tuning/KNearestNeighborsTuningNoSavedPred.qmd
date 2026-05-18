@@ -1,0 +1,249 @@
+---
+title: "K Nearest Neighbors"
+format: html
+---
+
+
+
+
+## Loading Libraries
+
+```{r}
+library(tuneR)
+library(seewave)
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(ggplot2)
+library(ranger)
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(discrim)
+library(vctrs)
+library(PRROC)
+library(tictoc)
+```
+
+
+
+
+
+## Sourcing
+
+```{r}
+source(here::here("ContextWindows", "ContextWindowFunction.R"))
+
+
+```
+
+
+## Setting Seed for Consistent Randomization
+
+```{r}
+set.seed(655)
+```
+
+
+## Loading In Data
+
+```{r}
+data = read.csv(here::here("GrayWhaleMethod", "TrainingSet", "GrayWhaleTrainingData.csv")) %>%
+  mutate(Humpback = as.factor(Humpback))
+
+
+
+#annotatedMelAW %>% arrange(desc(Time_End))
+```
+
+
+## Creating Training Data
+
+```{r}
+
+trainingdata = add_observations_linear(whaledf = data,
+                                start_time = 0,
+                                end_time =  7199.9,
+                                num_time_steps = 1, 
+                                numcep = 13,
+                                step_size = 0.1)
+
+
+
+
+trainingdata
+
+
+# manual_annotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx")) %>% 
+#     rename(Begin_Time = 'Begin Time (s)', End_Time = 'End Time (s)') %>% 
+#   filter(Begin_Time < max(trainingdata$Time_End))
+```
+
+
+
+## Tuning
+
+```{r}
+knn_tuning_cv_multi_nopreds <- function(k_values) {
+  tic("My Function Timer")
+  
+  training_cvs <- vfold_cv(trainingdata, v = 5)
+  
+  # custom metric set
+  my_metrics <- metric_set(
+    precision,
+    recall,
+    f_meas  # we'll control beta below
+  )
+  
+  # model
+  knnmod <- nearest_neighbor(
+    neighbors = tune(),
+    weight_func = "rectangular",
+    dist_power = 2
+  ) %>%
+    set_engine("kknn") %>%
+    set_mode("classification")
+  
+  # recipe
+  knnrecipe <- recipe(Humpback ~ ., data = trainingdata) %>%
+    step_rm(Time_Start, Time_End) %>%
+    step_normalize(all_numeric_predictors()) %>%
+    step_dummy(all_factor_predictors())
+  
+  # workflow
+  knnworkflow <- workflow() %>%
+    add_model(knnmod) %>%
+    add_recipe(knnrecipe)
+  
+  # grid
+  k_grid <- tibble(neighbors = k_values)
+  
+  # tune
+  knn_tuned <- knnworkflow %>%
+    tune_grid(
+      resamples = training_cvs,
+      grid = k_grid,
+      metrics = my_metrics,
+      control = control_grid(save_pred = FALSE)
+    )
+  
+  # collect metrics (default F1)
+  metrics_f1 <- collect_metrics(knn_tuned)
+  
+  
+  toc()
+  
+  return(list(
+    k_values = k_values,
+    tuning_results = knn_tuned,
+    metrics_f1 = metrics_f1
+  ))
+}
+```
+
+
+```{r}
+
+results <- knn_tuning_cv_multi_nopreds(c(1, 3, 50, 75))
+
+# precision, recall, F1, and F2
+
+metric_set = results$metrics_f1 %>% select(neighbors, .metric, mean) %>%
+  pivot_wider(
+    names_from = .metric,
+    values_from = mean
+  ) %>% select(neighbors, recall, precision, f_meas) %>%
+  rename(F1 = f_meas)
+
+# results, with calculated F2 score
+metric_set %>%
+  mutate(
+    F2 = ifelse(
+      is.na(precision) | is.na(recall) | (recall + 4 * precision) == 0,
+      NA_real_,
+      (5 * precision * recall) / (recall + 4 * precision)
+    )
+  )
+
+```
+
+
+
+## PR Curve
+
+
+```{r}
+
+
+metric_set %>%
+  ggplot(aes(x = recall, y = precision, 
+             )) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(values = c("red", "blue", "green", "yellow")) +
+  scale_x_continuous(limits = c(0, 1)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "Precision-Recall Curve on Window Predictions",
+    x = "Recall",
+    y = "Precision",
+    color = "Window Length"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+
+
+
+# Example data
+y_true <- c(1,0,1,1,0,0,1,0,1,0)
+y_scores <- c(0.9,0.2,0.8,0.7,0.3,0.4,0.95,0.1,0.85,0.5)
+
+# Separate scores
+scores_pos <- y_scores[y_true == 1]
+scores_neg <- y_scores[y_true == 0]
+
+# Compute PR curve
+pr <- pr.curve(scores.class0 = scores_pos,
+               scores.class1 = scores_neg,
+               curve = TRUE)
+
+# Extract curve data
+pr_df <- data.frame(
+  recall = pr$curve[, 1],
+  precision = pr$curve[, 2],
+  threshold = pr$curve[, 3]
+)
+
+# Plot with ggplot
+ggplot(pr_df, aes(x = recall, y = precision)) +
+  geom_line(color = "blue", size = 1) +
+  labs(title = "Precision-Recall Curve",
+       x = "Recall",
+       y = "Precision") +
+  theme_minimal()
+```
+
+
+
+```{r}
+create_df <- function(n) {
+  rows <- vector("list", n)
+  
+  for (i in 1:n) {
+    rows[[i]] <- data.frame(
+      id = i,
+      value = i^2
+    )
+  }
+  
+  result <- do.call(rbind, rows)
+  return(result)
+}
+
+
+create_df(5)
+```
+

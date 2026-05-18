@@ -9,8 +9,6 @@ editor: source
 ## Loading Libraries
 
 ```{r}
-library(tuneR)
-library(seewave)
 library(tidyr)
 library(dplyr)
 library(readxl)
@@ -18,207 +16,390 @@ library(ggplot2)
 library(ranger)
 library(tidyverse)
 library(tidymodels)
-library(kknn)
 library(discrim)
+library(vctrs)
+library(tictoc)
 ```
+
 
 ## Sourcing
 
 ```{r}
-source(here::here("ContextWindows", "ContextWindowFunctions.R"))
-source(here::here("EvaluationWindowFunctions.R"))
-source(here::here("CustomDenominator.R"))
-```
+#source(here::here("EvaluationWindows", "EvaluationWindowFunctions.R"))
+#source(here::here("CustomDenominator.R"))
+source(here::here("ContextWindows", "ContextWindowFunction.R"))
 
+```
 
 
 ## Setting Seed for Consistent Randomization
 
 ```{r}
-set.seed(656)
+set.seed(444)
 ```
 
-
-## Loading In Data
+## Loading in Data
 
 ```{r}
-data = read.csv(here::here("annotatedmelAW.csv"))
+# data = read.csv(here::here("TrainingSet", "AWnooverlap.csv")) %>%
+#   mutate(Humpback = as.factor(Humpback))
 
-# data = read.csv(here::here("60minutes.csv"))
+meldata1 = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training1.csv")) %>%
+  mutate(Humpback = as.factor(Humpback)) %>% filter(X %% 2 == 1) 
 
-# data = read.csv(here::here("FullMelAW.csv"))
 
-#annotatedMelAW = read.csv(here::here("annotatedmelAWlowerhzoverlap.csv"))
-# first 30 minutes is in this data set
+meldata2 = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training2.csv")) %>%
+  mutate(Humpback = as.factor(Humpback)) %>% filter(X %% 2 == 0) 
 
 #annotatedMelAW %>% arrange(desc(Time_End))
 ```
 
 
-
-
-### Creating Balanced Training Data
+## Creating Training Data
 
 ```{r}
-# start and end time are in seconds
 
-trainingdata = add_observations(whaledf = data,
+
+
+
+
+trainingdata1 = add_observations_linear_tolerance(whaledf = meldata1,
                                 start_time = 0,
-                                end_time = 200,
-                                num_time_steps=20, 
+                                end_time = 5399.9,
+                                num_time_steps = 10, 
                                 numcep = 12,
-                                step_size = 0.05)
-
-table(trainingdata$Humpback)
-
-numnegatives = nrow(trainingdata %>% filter(Humpback == 0))
+                                step_size = .1,
+                                jump_size = 1)
 
 
-# taking row numbers of positive observations
-
-trainingpositives = trainingdata %>% filter(Humpback == 1)
+trainingdata1 %>% select(Time_Start, Time_End, Humpback)
 
 
-sort(sample(c(1:nrow(trainingpositives)), size = numnegatives))
-
-trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
 
 
-trainingdatabalanced = rbind(trainingdata %>% filter(Humpback == 0),
-                              trainingpositives[sample(c(1:nrow(trainingpositives)), size = numnegatives),]
-                                  )
-
-table(trainingdatabalanced$Humpback)
-```
-
-### Creating Testing Data
+trainingdata1
 
 
-```{r}
-testingdata = add_observations(whaledf = data,
-                                start_time = 1000,
-                                end_time = 1200,
-                                num_time_steps=20, 
+max(meldata2$Time_End)
+
+trainingdata2 = add_observations_linear_tolerance(whaledf = meldata2,
+                                start_time = 5400,
+                                end_time = 7199.9,
+                                num_time_steps = 10, 
                                 numcep = 12,
-                                step_size = 0.05)
+                                step_size = .1,
+                                jump_size = 1)
 
-table(testingdata$Humpback)
+
+trainingdata2 %>% select(Time_Start, Time_End, Humpback)
+
+
+
+
+trainingdata2
+
+trainingdata2 %>% select(Humpback) %>% table()
+#table(trainingdata2$Humpback)
+
+
+trainingdata2$Humpback <- relevel(trainingdata2$Humpback, ref = 1)
+#manual_annotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
+```
+
+## Creating Tuning Grid
+
+```{r}
+grid = vec_expand_grid(min_n_param = c(50),
+  trees_param = c(1500))
+
 
 ```
 
-### Creating Cross-Validation Folds
+
+
+## Saving Predictions
+
+
+
 
 ```{r}
-training_cvs = vfold_cv(trainingdatabalanced, v = 10)
+
+rf_tuning_cv = function(min_n_param, trees_param){
+  
+  # print(c(row["min_n_param"], row["trees_param"]))
+  
+  training_cvs = vfold_cv(trainingdata1, v = 5)
+  
+  #creating model
+  rfmod_1 <- rand_forest(min_n = min_n_param, trees = trees_param,
+                         mtry = floor(sqrt(ncol(trainingdata1) - 3))) %>%
+    set_engine("ranger") %>%               
+    set_mode("classification")            
+  
+  #creating recipe
+  rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdata1) %>%
+    step_rm(Time_Start, Time_End) %>%
+    step_normalize(all_numeric_predictors()) %>%
+    step_dummy(all_factor_predictors())
+  
+  
+  #creating workflow
+  rfworkflow_1 <- workflow() %>%
+    add_model(rfmod_1) %>%
+    add_recipe(rfrecipe_1)
+  
+  # fitting model and saving cross validated predictions
+  rffit_1 = rfworkflow_1 %>% 
+    fit_resamples(resamples = training_cvs, 
+                  control = control_resamples(save_pred = TRUE)) 
+  
+  predictions <- collect_predictions(rffit_1)
+  #print(predictions)
+  predictions = predictions %>% 
+    arrange(.row) %>% 
+    select(.row, .pred_class, .pred_1, Humpback)
+  # print(preds)
+  
+  print(head(predictions))
+  
+  rfcvpredictions = predictions %>%
+  left_join(
+    trainingdata1 %>%
+      mutate(.row = row_number()) %>%
+      select(.row, Time_Start, Time_End),
+    by = ".row") %>% 
+    rename(preds = .pred_class, prob_positive = .pred_1)
+  
+    return(list(min_n_param = min_n_param,
+                trees_param = trees_param,
+                threshold = threshold,
+                rfcvpredictions = rfcvpredictions))
+}
+```
+
+```{r}
+
+
+
+
+results <- mapply(
+  rf_tuning_cv,
+  grid$min_n_param,
+  grid$trees_param,
+  SIMPLIFY = FALSE
+)
+
+
+results[[1]]$rfcvpredictions %>% select(preds) %>% table()
+```
+
+```{r}
+
+threshold_metrics <- function(df, truth_col, prob_col, thresholds = seq(0, 1, by = 0.1), positive_class = 1) {
+  
+  truth <- df[[truth_col]]
+  prob  <- df[[prob_col]]
+  
+
+  # figure out positive class
+  if (is.null(positive_class)) {
+    positive_class <- levels(truth)[2]
+  }
+  
+  results <- purrr::map_dfr(thresholds, function(thresh) {
+    
+    preds <- ifelse(prob >= thresh, positive_class, levels(truth)[1])
+    preds <- factor(preds, levels = levels(truth))
+    
+    TP <- sum(preds == positive_class & truth == positive_class)
+    FP <- sum(preds == positive_class & truth != positive_class)
+    FN <- sum(preds != positive_class & truth == positive_class)
+    
+    recall <- ifelse((TP + FN) == 0, NA, TP / (TP + FN))
+    precision <- ifelse((TP + FP) == 0, NA, TP / (TP + FP))
+    f1 <- ifelse(is.na(recall) | is.na(precision) | (recall + precision) == 0,
+                 NA,
+                 2 * (precision * recall) / (precision + recall))
+    f2 <- ifelse(is.na(recall) | is.na(precision) | (recall + precision) == 0,
+                 NA,
+                 5 * (precision * recall) / (4*precision + recall))
+    
+    
+    
+    
+    tibble::tibble(
+      threshold = thresh,
+      recall = recall,
+      precision = precision,
+      f1 = f1,
+      f2 = f2
+    )
+  })
+  
+  return(results)
+}
+
+threshold_metrics(df = results[[1]]$rfcvpredictions, 
+                  truth_col = "Humpback", 
+                  prob_col =  "prob_positive")
+
+# results
 
 ```
 
 
 
+## Applying to Later Training Set
 
 
-## Random Forest
-
-### Creating RF Model
+### Creating Final Model
 
 ```{r}
-library(randomForest)
 
 #creating model
-rfmod_1 <- rand_forest(min_n = 100, trees = 2000,
-                       mtry = floor(sqrt(ncol(trainingdatabalanced) - 3))) %>%
+rfmod_2 <- rand_forest(min_n = 100, trees = 750,
+                       mtry = floor(sqrt(ncol(trainingdata1) - 3))) %>%
   set_engine("ranger") %>%               
   set_mode("classification")            
 
 #creating recipe
-rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdatabalanced) %>%
+rfrecipe_2 <- recipe(Humpback ~ ., data = trainingdata1) %>%
   step_rm(Time_Start, Time_End) %>%
   step_normalize(all_numeric_predictors()) %>%
   step_dummy(all_factor_predictors())
 
 
 #creating workflow
-rfworkflow_1 <- workflow() %>%
-  add_model(rfmod_1) %>%
-  add_recipe(rfrecipe_1)
+rfworkflow_2 <- workflow() %>%
+  add_model(rfmod_2) %>%
+  add_recipe(rfrecipe_2)
 
 
 
 #fitting model
-rffit_1 <- rfworkflow_1 %>% fit(data = trainingdatabalanced)
+rffit_2 <- rfworkflow_2 %>% fit(data = trainingdata1)
 
 
-rffit_1 |>
-  extract_fit_engine()
-
-print(rfmod_1)
 ```
 
 
 
-### Cross Validating
+
+## Predicting on Second Training Data
 
 ```{r}
-trainingdatabalanced %>%
+predictionsdf = trainingdata2 %>% bind_cols(predict(rffit_2, trainingdata2, type = "class"),
+                                            predict(rffit_2, trainingdata2,type = "class"))
+
+predictionsdf %>% 
+
+table(predictionsdf$preds)
+table(predictionsdf$Humpback)
+
+```
+
+
+
+## Not Saving Predictions
+
+
+```{r}
+rf_tuning_cv_multi_nopreds <- function(mtry_values = floor(sqrt(ncol(trainingdata1) - 3)), 
+                                       trees_values = 500, 
+                                       min_n_values = 50) {
+  tic("My Function Timer")
+  
+  training_cvs <- vfold_cv(trainingdata1, v = 5)
+  
+  # custom metric set
+  my_metrics <- metric_set(
+    precision,
+    recall,
+    f_meas
+  )
+  
+  # model
+  rfmod <- rand_forest(
+    mtry = tune(),
+    trees = tune(),
+    min_n = tune()
+  ) %>%
+    set_engine("ranger") %>%
+    set_mode("classification")
+  
+  # recipe
+  rfrecipe <- recipe(Humpback ~ ., data = trainingdata1) %>%
+    step_rm(Time_Start, Time_End) %>%
+    step_normalize(all_numeric_predictors()) %>%
+    step_dummy(all_factor_predictors())
+  
+  # workflow
+  rfworkflow <- workflow() %>%
+    add_model(rfmod) %>%
+    add_recipe(rfrecipe)
+  
+  # grid
+  rf_grid <- expand_grid(
+    mtry = mtry_values,
+    trees = trees_values,
+    min_n = min_n_values
+  )
+  
+  # tune
+  rf_tuned <- rfworkflow %>%
+    tune_grid(
+      resamples = training_cvs,
+      grid = rf_grid,
+      metrics = my_metrics,
+      control = control_grid(save_pred = FALSE)
+    )
+  
+  # collect metrics
+  metrics_f1 <- collect_metrics(rf_tuned)
+  
+  toc()
+  
+  return(list(
+    mtry_values = mtry_values,
+    trees_values = trees_values,
+    min_n_values = min_n_values,
+    tuning_results = rf_tuned,
+    metrics_f1 = metrics_f1
+  ))
+}
+```
+
+
+```{r}
+
+
+
+results2 <- rf_tuning_cv_multi_nopreds(mtry_values = floor(sqrt(ncol(trainingdata1)) - 3),
+                                       trees_values = c(500),
+                                       min_n_values = 50)
+
+metric_set = results2$metrics_f1 %>% select(mtry, trees, min_n, .metric, mean) %>%
+  pivot_wider(
+    names_from = .metric,
+    values_from = mean) %>% select(mtry, trees, min_n, recall, precision, f_meas) %>%
+  rename(F1 = f_meas)# precision, recall, F1
+
+
+metric_set %>% # F2 scores
   mutate(
-    rfpreds = predict(rffit_1, trainingdatabalanced)$.pred_class
-  ) %>% dplyr::select(Time_Start, Time_End, rfpreds, Humpback)
-
-
-
-rffitcv_1 = rfworkflow_1 %>% fit_resamples(training_cvs,
-                metrics = metric_set(accuracy, roc_auc, precision, specificity, recall)
-                )
-collect_metrics(rffitcv_1)
-
+    F2 = ifelse(
+    is.na(precision) | is.na(recall) | (recall + 4*precision) == 0,
+    NA_real_,
+    (5 * precision * recall)/(recall + 4*precision)
+    )
+    )
 
 ```
 
 
 
 
-
-### Predicting on Testing Data Using Evaluation Windows
-
-```{r}
-
-rfpredictions = testingdata %>%
-  mutate(
-    preds = predict(rffit_1, testingdata)$.pred_class
-  ) %>% dplyr::select(Time_Start, Time_End, preds, Humpback)
-
-table(rfpredictions$preds)
-
-table(rfpredictions$Humpback)
-
-rfwindowpredictions = testing_eval_windows(rfpredictions, length = 10, threshold = 0.5)
-
-rfwindowpredictions
-
-rfwindowpredictions %>%
-  conf_mat(truth = Humpback,
-           estimate = prediction)
-
-rfwindowpredictions %>% 
-  recall(truth = Humpback, estimate = prediction, event_level = 'second')
-```
-
-
-### Predicting on Individual Whale Calls
-
-
-```{r}
-manual_annotations = read_excel(here::here("TrainingData", "AW", "AWhb.xlsx"))
-
-custom_denominator(manual_annotations, rfpredictions,
-                   pred_start_time = min(rfpredictions$Time_Start), 
-                   pred_end_time = max(rfpredictions$Time_End), 
-                   threshold = 0.5)
-```
-
-
-
-### Create Output For Raven Visualization
+## Creating Output for Raven Visualization
 
 ```{r}
 
