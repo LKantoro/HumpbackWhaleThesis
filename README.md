@@ -11,13 +11,13 @@ Lucas Kantorowski
 
 This thesis develops machine learning models to detect humpback whale
 song vocalizations. Data were collected of the coast of Monterey Bay,
-California in September 2023. We apply Mel-frequency cepstrum
+California in September 2018. We apply Mel-frequency cepstrum
 coefficients, context windows, and traditional machine learning models
 
 ### Data
 
 - **Source**: Recorder deployed in Monterey Bay, California
-- **Date**: September 2023
+- **Date**: September 2018
 - **Volume**: 3 hour WAV File with manual annotations for training and
   validation
 
