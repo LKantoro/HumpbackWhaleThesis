@@ -52,22 +52,3 @@ confusion_from_intervals <- function(data_true, data_pred,
 
 
 
-true_intervals <- tibble(dummy = c(0,0,0),
-  start_time = c(2, 8, 14),
-  banana   = c(5, 10, 15)
-  
-)
-
-pred_intervals <- tibble(
-  start_time = c(1),
-  end_time   = c(30)
-)
-
-metrics = confusion_from_intervals(
-  true_intervals,
-  pred_intervals,
-  start_time, banana,
-  start_time, end_time
-)
-
-(metrics)
