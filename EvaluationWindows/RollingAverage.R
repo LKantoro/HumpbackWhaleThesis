@@ -75,3 +75,27 @@ creating_prediction_windows <- function(data, time_start, time_end, value_col) {
 # df
 # 
 # creating_prediction_windows(df, Time_Start, Time_End, preds)
+
+
+
+
+creating_TN_prediction_windows <- function(data, time_start, time_end,
+                                                 value_col, value_col2) {
+  
+  data %>%
+    arrange({{ time_start }}, {{ time_end }}) %>%
+    mutate(
+      both_zero = ({{ value_col }} == 0 & {{ value_col2 }} == 0),
+      run_id = cumsum(
+        both_zero != lag(both_zero, default = first(both_zero))
+      )
+    ) %>%
+    filter(both_zero) %>%
+    group_by(run_id) %>%
+    summarise(
+      start_time = first({{ time_start }}),
+      end_time   = last({{ time_end }}),
+      length     = n(),
+      .groups = "drop"
+    )
+}
