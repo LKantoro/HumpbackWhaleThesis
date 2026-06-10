@@ -26,34 +26,21 @@ library(yardstick)
 ## Sourcing
 
 ```{r}
-
 source(here::here("ContextWindows", "ContextWindowFunction.R"))
-
-#source(here::here("EvaluationWindows", "EvaluationWindowFunctions.R"))
-source(here::here("EvaluationWindows", "NEWEvaluationWindowFunctions.R"))
-#source(here::here("EvaluationWindows", "NEWEREvaluationWindowFunctions.R"))
-
-
-#source(here::here("CustomDenominator.R"))
-source(here::here("CustomDenominatorNEW.R"))
-
-
-
-#source(here::here("EvaluationWindows", "NEWEvaluationWindowFunctions.R"))
-
+source(here::here("EvaluationWindows", "RollingAverage.R"))
+source(here::here("TestingPredictionIntervals.R"))
 ```
 
 
 ## Loading In Data
 
 ```{r}
-data_train = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
+data_train = read.csv(here::here("TrainingSet", "AWnooverlap.csv")) %>%
   mutate(Humpback = as.factor(Humpback))
 
 
 data_test = read.csv(here::here("EvaluationSet", "annotatedMELAWFull2000-Testing.csv")) %>%
-  mutate(Humpback = as.factor(Humpback))
-
+  mutate(Humpback = as.factor(Humpback)) %>% filter(X %% 2 == 1)
 
 #annotatedMelAW %>% arrange(desc(Time_End))
 ```
@@ -65,13 +52,13 @@ data_test = read.csv(here::here("EvaluationSet", "annotatedMELAWFull2000-Testing
 
 ```{r}
 
-trainingdata = add_observations_linear(whaledf = data_train,
-                                start_time = 3600,
-                                end_time =  4000,
+trainingdata = add_observations_linear_tolerance(whaledf = data_train,
+                                start_time = 0,
+                                end_time =  7199.9,
                                 num_time_steps = 20, 
                                 numcep = 12,
                                 step_size = 0.1,
-                                jump_size = 0.05)
+                                jump_size = 1.0)
 
 
 
@@ -85,13 +72,13 @@ trainingdata %>% select(Time_Start, Time_End, Humpback)
 
 
 ```{r}
-testingdata = add_observations_linear(whaledf = data_test,
+testingdata = add_observations_linear_tolerance(whaledf = data_test,
                                 start_time = 7200,
-                                end_time =  7800,
+                                end_time =  max(data_test$Time_End),
                                 num_time_steps = 20, 
                                 numcep = 12,
                                 step_size = 0.1,
-                                jump_size = 0.05)
+                                jump_size = 1.0)
 
 testingdata %>% select(Time_Start, Time_End, Humpback)
 
@@ -120,7 +107,7 @@ nrow(manual_annotations_evaluation)
 
 ```{r}
 # TEMP NEIGHBORS VALUE
-neighbors_param = 10
+neighbors_param = 30
 
 # creating model
 knnmod_1 <- nearest_neighbor(
@@ -157,115 +144,26 @@ predictionsdf = testingdata %>% mutate(preds = predict(knnfit_1, testingdata)$.p
 
 table(predictionsdf$preds)
 predictionsdf %>% select("Time_Start", "Time_End",   "Humpback",   "preds")
-```
-
-
-
-## Creating Aggregation Grid
-
-```{r}
-agg_window_length = c(2)
-#agg_window_threshold = seq(0.5, 1, by = 0.05)
-
-# 
-# agg_window_length = c(2)
-agg_window_threshold = c(0.5)
 
 ```
-
-
-```{r}
-
-
-
-grid <- expand.grid(
-  lengths = agg_window_length,
-  thresholds = agg_window_threshold
-)
-
-grid
-
-
-rolling_average <- rolling_avg_df(
-    predictionsdf,
-    agg_window_length,
-    agg_window_threshold)
-
-
-
-rolling_average %>% select("Time_Start","Time_End","Humpback","preds","rolling_avg","rolling_avg_prediction")
-
-prediction_windows <- creating_prediction_windows(
-    rolling_average,
-    time_start = Time_Start,
-    time_end = Time_End,
-    value_col = rolling_avg_prediction
-  )
-
-```
-
-
-
 
 ## Metrics Type 1
 
 ```{r}
-whale_call_metrics_type1 <- function(row, predictionsdf) {
-  agg_window_length <- as.numeric(row[1])
-  agg_window_threshold <- as.numeric(row[2])
-
-  rolling_average <- rolling_avg_df(
-    predictionsdf,
-    agg_window_length,
-    agg_window_threshold
-  )
-  
-  print(rolling_average)
-    
-  if (nrow(rolling_average %>% filter(rolling_avg_prediction == 1)) == 0) {
-    knneval_recall <- 0
-    knneval_precision <- NA
-    
-  } else if (nrow(rolling_average %>% filter(rolling_avg_prediction == 0)) == 0) {
-    knneval_recall <- 1
-    knneval_precision <- nrow(rolling_average %>% filter(Humpback == 1)) /
-      nrow(rolling_average %>% filter(rolling_avg_prediction == 1))
-    
-  } else if (nrow(rolling_average %>% filter(Humpback == 1)) == 0) {
-    knneval_recall <- NA
-    knneval_precision <- 0
-    
-  } else {
-    knneval_recall <- rolling_average %>%
-      recall(truth = Humpback, estimate = rolling_avg_prediction, event_level = "second") %>%
-      pull(.estimate)
-    
-    knneval_precision <- rolling_average %>%
-      precision(truth = Humpback, estimate = rolling_avg_prediction, event_level = "second") %>%
-      pull(.estimate)
-  }
-  
-  knneval_f1 <- (2 * knneval_recall * knneval_precision) / (knneval_recall + knneval_precision)
-  knneval_f2 <- (5 * knneval_recall * knneval_precision) / (knneval_recall + 4 * knneval_precision)
-  
-  data.frame(
-    agg_window_length = agg_window_length,
-    agg_window_threshold = agg_window_threshold,
-    Recall = knneval_recall,
-    Precision = knneval_precision,
-    F1 = knneval_f1,
-    F2 = knneval_f2
-  )
-}
 
 
-final_df <- do.call(
-  rbind,
-  lapply(seq_len(nrow(grid)), function(i) {
-    whale_call_metrics_type1(grid[i, ], predictionsdf)
-  })
+predictionsdf %>%
+  conf_mat(truth = Humpback, estimate = preds)
+
+# type 1 metrics
+
+data.frame(recall = recall(predictionsdf, truth = Humpback, estimate = preds, event_level = "second")$.estimate,
+           precision = precision(predictionsdf, truth = Humpback, estimate = preds, event_level = "second")$.estimate, 
+           F1 = f_meas(predictionsdf, truth = Humpback, estimate = preds, beta = 1, event_level = "second")$.estimate, 
+           F2 = f_meas(predictionsdf, truth = Humpback, estimate = preds, beta = 2, event_level = "second")$.estimate
 )
 ```
+
 
 
 
@@ -273,37 +171,62 @@ final_df <- do.call(
 
 
 ```{r}
-whale_call_metrics_type2 <- function(row, predictionsdf) {
-  agg_window_length <- as.numeric(row[1])
-  agg_window_threshold <- as.numeric(row[2])
+whale_call_metrics_type2 <- function(predictionsdf) {
+  # agg_window_length <- as.numeric(row[1])
+  # agg_window_threshold <- as.numeric(row[2])
 
-  rolling_average <- rolling_avg_df(
-    predictionsdf,
-    agg_window_length,
-    agg_window_threshold
-  )
+  # rolling_average <- rolling_avg_df(
+  #   predictionsdf,
+  #   agg_window_length,
+  #   agg_window_threshold
+  # )
+  # 
+  # print(rolling_average)
 
-  prediction_windows <- creating_prediction_windows(
-    rolling_average,
-    time_start = Time_Start,
-    time_end = Time_End,
-    value_col = rolling_avg_prediction
-  )
+  # prediction_windows <- creating_prediction_windows(
+  #   rolling_average,
+  #   time_start = Time_Start,
+  #   time_end = Time_End,
+  #   value_col = rolling_avg_prediction
+  # )
+  
+  
+  positive_windows = predictionsdf %>% filter(preds == 1)
+  
+  print(positive_windows)
 
+  # conf_matrix_table <- confusion_from_intervals(
+  #   data_true = manual_annotations_evaluation,
+  #   data_pred = prediction_windows,
+  #   true_interval_start = Begin_Time,
+  #   true_interval_end = End_Time,
+  #   pred_interval_start = start_time,
+  #   pred_interval_end = end_time
+  # )
+  # 
+  
   conf_matrix_table <- confusion_from_intervals(
     data_true = manual_annotations_evaluation,
-    data_pred = prediction_windows,
+    data_pred = positive_windows,
     true_interval_start = Begin_Time,
     true_interval_end = End_Time,
-    pred_interval_start = start_time,
-    pred_interval_end = end_time
+    pred_interval_start = Time_Start,
+    pred_interval_end = Time_End
   )
+  
+  
+  
 
   TP <- conf_matrix_table %>% dplyr::pull(TP)
   FN <- conf_matrix_table %>% dplyr::pull(FN)
   FP <- conf_matrix_table %>% dplyr::pull(FP)
 
-  num_pred_windows <- nrow(prediction_windows)
+  print(TP)
+  print(FN)
+  print(FP)
+  
+  num_pred_windows <- nrow(positive_windows)
+  num_calls_detected = TP
 
   if (TP + FN == 0) {
     recall <- NA_real_
@@ -330,8 +253,9 @@ whale_call_metrics_type2 <- function(row, predictionsdf) {
   }
 
   data.frame(
-    agg_window_length = agg_window_length,
-    agg_window_threshold = agg_window_threshold,
+    TP = TP,
+    FN = FN,
+    FP = FP,
     num_pred_windows = num_pred_windows,
     recall = recall,
     precision = precision,
@@ -340,51 +264,100 @@ whale_call_metrics_type2 <- function(row, predictionsdf) {
   )
 }
 
-final_df <- do.call(
-  rbind,
-  lapply(seq_len(nrow(grid)), function(i) {
-    whale_call_metrics_type2(grid[i, ], predictionsdf)
-  })
+
+whale_call_metrics_type2(predictionsdf)
+
+```
+
+
+## Examining How Long to Listen
+
+
+```{r}
+
+predictionsdf %>% select(Time_Start, Time_End, Humpback, preds)
+
+windows_temp = creating_prediction_windows(
+  predictionsdf,
+  time_start = Time_Start,
+  time_end = Time_End,
+  value_col = preds
 )
 
 
-sorted_df = final_df %>% data.frame() %>% arrange(desc(F2))
+windows_temp = windows_temp %>% mutate(time_length = end_time - start_time)
 
-sorted_df
 
-manual_annotations_evaluation
+sum(windows_temp$time_length)
+```
+
+## Calculating How Much Downtime Successfully Predicted
+
+
+```{r}
+predictionsdf %>% filter(preds == 0, Humpback == 0) %>% 
+  select(Time_Start, Time_End, Humpback, preds)
+
+
+true_negative_windows_temp = creating_TN_prediction_windows(
+  predictionsdf,
+  time_start = Time_Start,
+  time_end = Time_End,
+  value_col = preds,
+  value_col2 = Humpback
+)
+
+true_negative_windows_temp = true_negative_windows_temp %>% 
+  mutate(time_length = end_time - start_time - 2) # window size
+
+sum(true_negative_windows_temp$time_length)
+
 ```
 
 
 
-## Output Annotation FIle for Raven
+
+
+## Saving Predictions of Best Parameters
 
 
 ```{r}
 
+prediction_windows_best <- creating_prediction_windows(
+  predictionsdf,
+  time_start = Time_Start,
+  time_end = Time_End,
+  value_col = preds
+)
+
+predictionsdf %>% select(Time_Start, Time_End, Humpback, preds) %>% filter(preds == 1)
+
+prediction_windows_best
 ```
 
 
-
-## PR Curve
-
+## Output Annotation File for Raven
 
 ```{r}
 
+raven_output = function(windows){
+  print(windows)
+  #creating dummy low and high frequencies
+  windows = windows %>% 
+    rename("Begin Time (s)" = start_time, "End Time (s)" = end_time) %>% 
+    mutate("Low Freq (Hz)" = 0, "High Freq (Hz)" = 2000) %>% 
+    dplyr::select(c("Begin Time (s)", "End Time (s)", 
+                    "Low Freq (Hz)", "High Freq (Hz)"))
+  
+  
+  #create output 
+  write.table(windows, 
+              paste0("graywhalemethodknnevalwindowpreds",
+                     ".txt"), 
+              sep = "\t", row.names = FALSE, quote = FALSE)
+}
 
+raven_output(windows = prediction_windows_best)
 
-sorted_df %>%
-  ggplot(aes(x = recall, y = precision, color = as.factor(agg_window_length), group = as.factor(agg_window_length))) +
-  geom_line() +
-  geom_point() +
-  scale_color_manual(values = c("red", "blue", "green", "yellow", "orange", "purple")) +
-  scale_x_continuous(limits = c(0, 1)) +
-  scale_y_continuous(limits = c(0.5, 1)) +
-  labs(
-    title = "Precision-Recall Curve of Different Number of Neighbors",
-    x = "Recall",
-    y = "Precision",
-    color = "Window Length"
-  ) +
-  theme_minimal()
 ```
+
