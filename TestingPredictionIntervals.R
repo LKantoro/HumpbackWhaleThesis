@@ -32,8 +32,8 @@ confusion_from_intervals <- function(data_true, data_pred,
   
   overlaps <- expand_grid(true_df, pred_df) %>%
     filter(
-      true_start < pred_end,   # non-inclusive boundary
-      true_end   > pred_start
+      true_start <= pred_end,   # inclusive boundary
+      true_end   >= pred_start
     )
   
   true_hit <- unique(overlaps$true_id)
