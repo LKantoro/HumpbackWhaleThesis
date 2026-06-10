@@ -20,6 +20,8 @@ library(readxl)
 ```{r}
 manualannotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
 
+
+
 colnames(manualannotations)
 ```
 
@@ -49,7 +51,7 @@ manualannotations = manualannotations %>%
 ```{r}
 
 manualannotations %>%
-  ggplot(aes(x = callduration)) + 
+  ggplot(aes(x = end_time - begin_time)) + 
   ggtitle("Humpback Whale Call Durations") + 
   labs(x = "Duration (seconds)", y = "Count") +
   geom_histogram(binwidth = 0.25, fill = "blue", color = "black") +
@@ -58,6 +60,8 @@ manualannotations %>%
   theme(panel.grid.minor = element_blank(),
         plot.title = element_text(hjust = 0.5),
         axis.ticks = element_line(color = "black"))
+
+mean(manualannotations$end_time - manualannotations$begin_time)
 ```
 
 
