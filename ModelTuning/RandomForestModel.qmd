@@ -18,15 +18,13 @@ library(tidyverse)
 library(tidymodels)
 library(discrim)
 library(vctrs)
-library(tictoc)
 ```
 
 
 ## Sourcing
 
 ```{r}
-#source(here::here("EvaluationWindows", "EvaluationWindowFunctions.R"))
-#source(here::here("CustomDenominator.R"))
+
 source(here::here("ContextWindows", "ContextWindowFunction.R"))
 
 ```
@@ -41,15 +39,14 @@ set.seed(444)
 ## Loading in Data
 
 ```{r}
-# data = read.csv(here::here("TrainingSet", "AWnooverlap.csv")) %>%
-#   mutate(Humpback = as.factor(Humpback))
-
-meldata1 = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training1.csv")) %>%
-  mutate(Humpback = as.factor(Humpback)) %>% filter(X %% 2 == 1) 
 
 
-meldata2 = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training2.csv")) %>%
-  mutate(Humpback = as.factor(Humpback)) %>% filter(X %% 2 == 0) 
+data = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
+  mutate(Humpback = as.factor(Humpback))
+
+
+data_nooverlap = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
+  mutate(Humpback = as.factor(Humpback)) %>% filter(X %% 2 == 1)
 
 #annotatedMelAW %>% arrange(desc(Time_End))
 ```
@@ -59,257 +56,36 @@ meldata2 = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training2.csv"
 
 ```{r}
 
-
-
-
-
-trainingdata1 = add_observations_linear_tolerance(whaledf = meldata1,
+trainingdata = add_observations_linear_tolerance(whaledf = data_nooverlap,
                                 start_time = 0,
-                                end_time = 5399.9,
+                                end_time = 2000,
                                 num_time_steps = 10, 
                                 numcep = 12,
-                                step_size = .1,
-                                jump_size = 1)
+                                step_size = 0.1,
+                                jump_size = 0.5)
 
-
-trainingdata1 %>% select(Time_Start, Time_End, Humpback)
-
-
-
-
-trainingdata1
-
-
-max(meldata2$Time_End)
-
-trainingdata2 = add_observations_linear_tolerance(whaledf = meldata2,
-                                start_time = 5400,
-                                end_time = 7199.9,
-                                num_time_steps = 10, 
-                                numcep = 12,
-                                step_size = .1,
-                                jump_size = 1)
-
-
-trainingdata2 %>% select(Time_Start, Time_End, Humpback)
+trainingdata %>% select(Time_Start, Time_End, Humpback)
 
 
 
+table(trainingdata$Humpback)
 
-trainingdata2
-
-trainingdata2 %>% select(Humpback) %>% table()
-#table(trainingdata2$Humpback)
-
-
-trainingdata2$Humpback <- relevel(trainingdata2$Humpback, ref = 1)
+trainingdata$Humpback <- relevel(trainingdata$Humpback, ref = 1)
 #manual_annotations = read_excel(here::here("OrigData", "AW", "AWhb.xlsx"))
 ```
 
-## Creating Tuning Grid
-
-```{r}
-grid = vec_expand_grid(min_n_param = c(50),
-  trees_param = c(1500))
-
-
-```
 
 
 
-## Saving Predictions
-
-
+## Tuning (Not Saving Predictions)
 
 
 ```{r}
-
-rf_tuning_cv = function(min_n_param, trees_param){
-  
-  # print(c(row["min_n_param"], row["trees_param"]))
-  
-  training_cvs = vfold_cv(trainingdata1, v = 5)
-  
-  #creating model
-  rfmod_1 <- rand_forest(min_n = min_n_param, trees = trees_param,
-                         mtry = floor(sqrt(ncol(trainingdata1) - 3))) %>%
-    set_engine("ranger") %>%               
-    set_mode("classification")            
-  
-  #creating recipe
-  rfrecipe_1 <- recipe(Humpback ~ ., data = trainingdata1) %>%
-    step_rm(Time_Start, Time_End) %>%
-    step_normalize(all_numeric_predictors()) %>%
-    step_dummy(all_factor_predictors())
-  
-  
-  #creating workflow
-  rfworkflow_1 <- workflow() %>%
-    add_model(rfmod_1) %>%
-    add_recipe(rfrecipe_1)
-  
-  # fitting model and saving cross validated predictions
-  rffit_1 = rfworkflow_1 %>% 
-    fit_resamples(resamples = training_cvs, 
-                  control = control_resamples(save_pred = TRUE)) 
-  
-  predictions <- collect_predictions(rffit_1)
-  #print(predictions)
-  predictions = predictions %>% 
-    arrange(.row) %>% 
-    select(.row, .pred_class, .pred_1, Humpback)
-  # print(preds)
-  
-  print(head(predictions))
-  
-  rfcvpredictions = predictions %>%
-  left_join(
-    trainingdata1 %>%
-      mutate(.row = row_number()) %>%
-      select(.row, Time_Start, Time_End),
-    by = ".row") %>% 
-    rename(preds = .pred_class, prob_positive = .pred_1)
-  
-    return(list(min_n_param = min_n_param,
-                trees_param = trees_param,
-                threshold = threshold,
-                rfcvpredictions = rfcvpredictions))
-}
-```
-
-```{r}
-
-
-
-
-results <- mapply(
-  rf_tuning_cv,
-  grid$min_n_param,
-  grid$trees_param,
-  SIMPLIFY = FALSE
-)
-
-
-results[[1]]$rfcvpredictions %>% select(preds) %>% table()
-```
-
-```{r}
-
-threshold_metrics <- function(df, truth_col, prob_col, thresholds = seq(0, 1, by = 0.1), positive_class = 1) {
-  
-  truth <- df[[truth_col]]
-  prob  <- df[[prob_col]]
-  
-
-  # figure out positive class
-  if (is.null(positive_class)) {
-    positive_class <- levels(truth)[2]
-  }
-  
-  results <- purrr::map_dfr(thresholds, function(thresh) {
-    
-    preds <- ifelse(prob >= thresh, positive_class, levels(truth)[1])
-    preds <- factor(preds, levels = levels(truth))
-    
-    TP <- sum(preds == positive_class & truth == positive_class)
-    FP <- sum(preds == positive_class & truth != positive_class)
-    FN <- sum(preds != positive_class & truth == positive_class)
-    
-    recall <- ifelse((TP + FN) == 0, NA, TP / (TP + FN))
-    precision <- ifelse((TP + FP) == 0, NA, TP / (TP + FP))
-    f1 <- ifelse(is.na(recall) | is.na(precision) | (recall + precision) == 0,
-                 NA,
-                 2 * (precision * recall) / (precision + recall))
-    f2 <- ifelse(is.na(recall) | is.na(precision) | (recall + precision) == 0,
-                 NA,
-                 5 * (precision * recall) / (4*precision + recall))
-    
-    
-    
-    
-    tibble::tibble(
-      threshold = thresh,
-      recall = recall,
-      precision = precision,
-      f1 = f1,
-      f2 = f2
-    )
-  })
-  
-  return(results)
-}
-
-threshold_metrics(df = results[[1]]$rfcvpredictions, 
-                  truth_col = "Humpback", 
-                  prob_col =  "prob_positive")
-
-# results
-
-```
-
-
-
-## Applying to Later Training Set
-
-
-### Creating Final Model
-
-```{r}
-
-#creating model
-rfmod_2 <- rand_forest(min_n = 100, trees = 750,
-                       mtry = floor(sqrt(ncol(trainingdata1) - 3))) %>%
-  set_engine("ranger") %>%               
-  set_mode("classification")            
-
-#creating recipe
-rfrecipe_2 <- recipe(Humpback ~ ., data = trainingdata1) %>%
-  step_rm(Time_Start, Time_End) %>%
-  step_normalize(all_numeric_predictors()) %>%
-  step_dummy(all_factor_predictors())
-
-
-#creating workflow
-rfworkflow_2 <- workflow() %>%
-  add_model(rfmod_2) %>%
-  add_recipe(rfrecipe_2)
-
-
-
-#fitting model
-rffit_2 <- rfworkflow_2 %>% fit(data = trainingdata1)
-
-
-```
-
-
-
-
-## Predicting on Second Training Data
-
-```{r}
-predictionsdf = trainingdata2 %>% bind_cols(predict(rffit_2, trainingdata2, type = "class"),
-                                            predict(rffit_2, trainingdata2,type = "class"))
-
-predictionsdf %>% 
-
-table(predictionsdf$preds)
-table(predictionsdf$Humpback)
-
-```
-
-
-
-## Not Saving Predictions
-
-
-```{r}
-rf_tuning_cv_multi_nopreds <- function(mtry_values = floor(sqrt(ncol(trainingdata1) - 3)), 
+rf_tuning_cv_multi_nopreds <- function(mtry_values = floor(sqrt(ncol(trainingdata) - 3)), 
                                        trees_values = 500, 
                                        min_n_values = 50) {
-  tic("My Function Timer")
-  
-  training_cvs <- vfold_cv(trainingdata1, v = 5)
+
+  training_cvs <- vfold_cv(trainingdata, v = 5)
   
   # custom metric set
   my_metrics <- metric_set(
@@ -328,7 +104,7 @@ rf_tuning_cv_multi_nopreds <- function(mtry_values = floor(sqrt(ncol(trainingdat
     set_mode("classification")
   
   # recipe
-  rfrecipe <- recipe(Humpback ~ ., data = trainingdata1) %>%
+  rfrecipe <- recipe(Humpback ~ ., data = trainingdata) %>%
     step_rm(Time_Start, Time_End) %>%
     step_normalize(all_numeric_predictors()) %>%
     step_dummy(all_factor_predictors())
@@ -357,8 +133,7 @@ rf_tuning_cv_multi_nopreds <- function(mtry_values = floor(sqrt(ncol(trainingdat
   # collect metrics
   metrics_f1 <- collect_metrics(rf_tuned)
   
-  toc()
-  
+
   return(list(
     mtry_values = mtry_values,
     trees_values = trees_values,
@@ -372,10 +147,8 @@ rf_tuning_cv_multi_nopreds <- function(mtry_values = floor(sqrt(ncol(trainingdat
 
 ```{r}
 
-
-
-results2 <- rf_tuning_cv_multi_nopreds(mtry_values = floor(sqrt(ncol(trainingdata1)) - 3),
-                                       trees_values = c(500),
+results2 <- rf_tuning_cv_multi_nopreds(mtry_values = floor(sqrt(ncol(trainingdata)) - 3),
+                                       trees_values = c(250, 500),
                                        min_n_values = 50)
 
 metric_set = results2$metrics_f1 %>% select(mtry, trees, min_n, .metric, mean) %>%
@@ -384,55 +157,6 @@ metric_set = results2$metrics_f1 %>% select(mtry, trees, min_n, .metric, mean) %
     values_from = mean) %>% select(mtry, trees, min_n, recall, precision, f_meas) %>%
   rename(F1 = f_meas)# precision, recall, F1
 
-
-metric_set %>% # F2 scores
-  mutate(
-    F2 = ifelse(
-    is.na(precision) | is.na(recall) | (recall + 4*precision) == 0,
-    NA_real_,
-    (5 * precision * recall)/(recall + 4*precision)
-    )
-    )
-
 ```
-
-
-
-
-## Creating Output for Raven Visualization
-
-```{r}
-
-raven_output = function(testingoutput, start, end){
-
-  rftestingoutput = rfwindowpredictions %>% 
-    dplyr::select(Time_Start, Time_End, Humpback, prediction)
-  
-  
-  #creating dummy low and high frequencies
-  
-  rftestingoutput = rftestingoutput %>% mutate(low = rep(0, times = nrow(rftestingoutput)),
-                           high = rep(2000, times = nrow(rftestingoutput)))
-  
-  
-  rftestingoutput = rftestingoutput %>% filter(prediction == 1) %>% 
-    rename("Begin Time (s)" = Time_Start, "End Time (s)" = Time_End, 
-           "Low Freq (Hz)" = low, "High Freq (Hz)" = high) %>% 
-    dplyr::select(c("Begin Time (s)", "End Time (s)", 
-                    "Low Freq (Hz)", "High Freq (Hz)"))
-  
-  
-  #create output 
-  write.table(rftestingoutput, paste0("rfevalwindowpreds", start, end, ".txt"), 
-              sep = "\t", row.names = FALSE, quote = FALSE)
-}
-
-raven_output(testingoutput = rftestingoutput,
-             start = min(rfwindowpredictions$Time_Start),
-             end = max(rfwindowpredictions$Time_End))
-
-```
-
-
 
 

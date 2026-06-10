@@ -17,15 +17,14 @@ library(tidymodels)
 library(kknn)
 library(discrim)
 library(vctrs)
-library(tictoc)
+library(PRROC)
 ```
 
 
 ## Sourcing
 
 ```{r}
-#source(here::here("EvaluationWindows", "EvaluationWindowFunctions.R"))
-#source(here::here("CustomDenominator.R"))
+
 source(here::here("ContextWindows", "ContextWindowFunction.R"))
 
 ```
@@ -34,15 +33,13 @@ source(here::here("ContextWindows", "ContextWindowFunction.R"))
 ## Setting Seed for Consistent Randomization
 
 ```{r}
-set.seed(444)
+set.seed(532)
 ```
 
 
-## Loading In Data
+## Loading in Data
 
 ```{r}
-# data = read.csv(here::here("TrainingSet", "AWnooverlap.csv")) %>%
-#   mutate(Humpback = as.factor(Humpback))
 
 data = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training.csv")) %>%
   mutate(Humpback = as.factor(Humpback))
@@ -60,17 +57,14 @@ data_nooverlap = read.csv(here::here("TrainingSet", "annotatedMelAW2000-Training
 
 ```{r}
 
-# start - end is step_size*num_time_steps
-
-# start - start is jump_size
 
 trainingdata = add_observations_linear_tolerance(whaledf = data_nooverlap,
                                 start_time = 0,
-                                end_time = 7199.9,
-                                num_time_steps = num_time_steps, 
+                                end_time = 2000,
+                                num_time_steps = 10, 
                                 numcep = 12,
                                 step_size = 0.1,
-                                jump_size = 0.1)
+                                jump_size = 0.5)
 
 trainingdata %>% select(Time_Start, Time_End, Humpback)
 
@@ -84,92 +78,12 @@ trainingdata$Humpback <- relevel(trainingdata$Humpback, ref = 1)
 
 
 
-## Saving Predictions
 
-```{r}
-knn_tuning_cv = function(neighbors_param){
-  tic("My Function Timer")
-
-  training_cvs = vfold_cv(trainingdata, v = 5)
-  
-  # creating model
-  knnmod_1 <- nearest_neighbor(
-    neighbors = neighbors_param,
-    weight_func = "rectangular",
-    dist_power = 2
-  ) %>%
-    set_engine("kknn") %>%
-    set_mode("classification")
-  
-  # creating recipe
-  knnrecipe_1 <- recipe(Humpback ~ ., data = trainingdata) %>%
-    step_rm(Time_Start, Time_End) %>%
-    step_normalize(all_numeric_predictors()) %>%
-    step_dummy(all_factor_predictors())
-  
-  # creating workflow
-  knnworkflow_1 <- workflow() %>%
-    add_model(knnmod_1) %>%
-    add_recipe(knnrecipe_1)
-  
-  # fitting model and saving cross-validated predictions
-  knnfit_1 = knnworkflow_1 %>%
-    fit_resamples(
-      resamples = training_cvs,
-      control = control_resamples(save_pred = TRUE)
-    )
-  
-  predictions <- collect_predictions(knnfit_1)
-  
-  predictions = predictions %>%
-    arrange(.row) %>%
-    select(.row, .pred_class, Humpback)
-  
-  knncvpredictions = predictions %>%
-    left_join(
-      trainingdata %>%
-        mutate(.row = row_number()) %>%
-        select(.row, Time_Start, Time_End),
-      by = ".row"
-    ) %>%
-    rename(preds = .pred_class)
-  toc()
-  return(list(
-    neighbors_param = neighbors_param,
-    knncvpredictions = knncvpredictions
-  ))
-}
-```
-
-```{r}
-
-
-
-
-results <- mapply(
-  knn_tuning_cv,
-  grid$neighbors_param,
-  SIMPLIFY = FALSE
-)
-
-results
-
-table(results[[1]]$knncvpredictions$Humpback)
-table(results[[1]]$knncvpredictions$preds)
-
-
-table(results[[2]]$knncvpredictions$Humpback)
-table(results[[2]]$knncvpredictions$preds)
-
-```
-
-
-## Not Saving Predictions
+## Tuning (Not Saving Predictions)
 
 ```{r}
 knn_tuning_cv_multi_nopreds <- function(k_values) {
-  tic("My Function Timer")
-  
+
   training_cvs <- vfold_cv(trainingdata, v = 5)
   
   # custom metric set
@@ -215,7 +129,6 @@ knn_tuning_cv_multi_nopreds <- function(k_values) {
   metrics_f1 <- collect_metrics(knn_tuned)
   
   
-  toc()
   
   return(list(
     k_values = k_values,
@@ -227,7 +140,7 @@ knn_tuning_cv_multi_nopreds <- function(k_values) {
 ```
 
 ```{r}
-results2 <- knn_tuning_cv_multi_nopreds(c(100))
+results2 <- knn_tuning_cv_multi_nopreds(c(100, 150))
 
 metric_set = results2$metrics_f1 %>% select(neighbors, .metric, mean) %>%
   pivot_wider(
@@ -246,191 +159,7 @@ metric_set %>%
     )
 
 
-results2$metrics_f2   # F2 scores
-```
-
-
-```{r}
-
-
-
-grid2 <- expand.grid(
-  i = seq_along(results),
-  lengths = agg_window_length,
-  thresholds = agg_window_threshold
-)
-
-grid2
 ```
 
 
 
-
-
-
-
-```{r}
-
-
-# i is a input of a dataframe (knncvpredictions) and number of neighbors
-
-calc_metrics <- lapply(results, function(res) {
-  neighbors <- res$neighbors_param
-  predictionsdf <- res$knncvpredictions
-  
-  if (nrow(predictionsdf %>% filter(preds == 1)) == 0) {
-    knncv_recall <- 0
-    knncv_precision <- NA
-    
-  } else if (nrow(predictionsdf %>% filter(preds == 0)) == 0) {
-    knncv_recall <- 1
-    knncv_precision <- nrow(predictionsdf %>% filter(Humpback == 1)) /
-      nrow(predictionsdf %>% filter(preds == 1))
-    
-  } else if (nrow(predictionsdf %>% filter(Humpback == 1)) == 0) {
-    knncv_recall <- NA
-    knncv_precision <- 0
-    
-  } else {
-    knncv_recall <- predictionsdf %>%
-      recall(truth = Humpback, estimate = preds, event_level = "second") %>%
-      pull(.estimate)
-    
-    knncv_precision <- predictionsdf %>%
-      precision(truth = Humpback, estimate = preds, event_level = "second") %>%
-      pull(.estimate)
-  }
-  
-  knncv_f1 <- (2 * knncv_recall * knncv_precision) / (knncv_recall + knncv_precision)
-  knncv_f2 <- (5 * knncv_recall * knncv_precision) / (knncv_recall + 4 * knncv_precision)
-  
-  data.frame(
-    neighbors_param = neighbors,
-    Recall = knncv_recall,
-    Precision = knncv_precision,
-    F1 = knncv_f1,
-    F2 = knncv_f2
-  )
-})
-
-final_df <- do.call(rbind, calc_metrics)
-
-final_df %>% data.frame() %>% 
-  mutate(Time_Steps = num_time_steps, .before = 1)%>% arrange(desc(Recall))
-
-sorted_df = final_df %>% data.frame() %>% arrange(desc(F2))
-
-sorted_df
-```
-
-
-
-## PR Curve
-
-
-```{r}
-library(PRROC)
-library(ggplot2)
-
-
-sorted_df %>%
-  ggplot(aes(x = Recall, y = Precision, 
-             group = agg_window_length,
-             color = factor(agg_window_length))) +
-  geom_line() +
-  geom_point() +
-  scale_color_manual(values = c("red", "blue", "green", "yellow")) +
-  scale_x_continuous(limits = c(0, 1)) +
-  scale_y_continuous(limits = c(0.5, 1)) +
-  labs(
-    title = "Precision-Recall Curve on Window Predictions",
-    x = "Recall",
-    y = "Precision",
-    color = "Window Length"
-  ) +
-  theme_minimal()
-```
-
-```{r}
-
-
-
-# Example data
-y_true <- c(1,0,1,1,0,0,1,0,1,0)
-y_scores <- c(0.9,0.2,0.8,0.7,0.3,0.4,0.95,0.1,0.85,0.5)
-
-# Separate scores
-scores_pos <- y_scores[y_true == 1]
-scores_neg <- y_scores[y_true == 0]
-
-# Compute PR curve
-pr <- pr.curve(scores.class0 = scores_pos,
-               scores.class1 = scores_neg,
-               curve = TRUE)
-
-# Extract curve data
-pr_df <- data.frame(
-  recall = pr$curve[, 1],
-  precision = pr$curve[, 2],
-  threshold = pr$curve[, 3]
-)
-
-# Plot with ggplot
-ggplot(pr_df, aes(x = recall, y = precision)) +
-  geom_line(color = "blue", size = 1) +
-  labs(title = "Precision-Recall Curve",
-       x = "Recall",
-       y = "Precision") +
-  theme_minimal()
-```
-
-
-
-```{r}
-create_df <- function(n) {
-  rows <- vector("list", n)
-  
-  for (i in 1:n) {
-    rows[[i]] <- data.frame(
-      id = i,
-      value = i^2
-    )
-  }
-  
-  result <- do.call(rbind, rows)
-  return(result)
-}
-
-
-create_df(5)
-```
-
-
-## Create Output For Raven Visualization
-
-
-```{r}
-knntestingoutput = knnwindowpredictions %>% 
-  dplyr::select(Time_Start, Time_End, Humpback, prediction)
-
-
-
-
-#creating dummy low and high frequencies for now
-
-knntestingoutput = knntestingoutput %>% mutate(low = rep(0, times = nrow(knntestingoutput)),
-                         high = rep(1000, times = nrow(knntestingoutput)))
-
-
-
-knntestingoutput = knntestingoutput %>% filter(prediction == 1) %>% 
-  rename("Begin Time (s)" = Time_Start, "End Time (s)" = Time_End, 
-         "Low Freq (Hz)" = low, "High Freq (Hz)" = high) %>% 
-  dplyr::select(c("Begin Time (s)", "End Time (s)", 
-                  "Low Freq (Hz)", "High Freq (Hz)"))
-
-
-
-#create output 
-write.table(knntestingoutput, "knnevalwindowpreds.txt", sep = "\t", row.names = FALSE, quote = FALSE)
-```
